@@ -1,0 +1,12 @@
+{
+    "id": "{103D975D-53C5-40B4-BDF9-0035E4F217FE}",
+    "author": "Cornelius Neufeldt",
+    "name": "Grfldt KI Tools für IPSView",
+    "url": "https://github.com/PT-NuV/GrfldtKITools",
+    "compatibility": {
+        "version": "9.1"
+    },
+    "version": "1.3",
+    "build": 7,
+    "date": 1793466655
+}

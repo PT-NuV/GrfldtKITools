@@ -1,0 +1,26 @@
+{
+    "elements": [
+        {
+            "type": "Label",
+            "caption": "Bearbeitet IPSView-Ansichten über Befehle (JSON) in der Variable \"Befehl\". Das Ergebnis steht in der Variable \"Ergebnis\". Vor jeder Änderung wird automatisch eine Sicherung angelegt."
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "BackupKeep",
+            "caption": "Sicherungen pro Ansicht behalten",
+            "minimum": 1,
+            "maximum": 200
+        },
+        {
+            "type": "Label",
+            "caption": "Grfldt KI Tools für IPSView: inoffizielles Modul von Cornelius Neufeldt (Garfieldt), entwickelt mit Unterstützung von Claude (Anthropic). Dateiformat nach der Referenz von Andreas Brauneis. Getestet mit IPSView 6.5 und Symcon 9.1 Rust Edition (Beta). Lizenz: MIT."
+        }
+    ],
+    "actions": [
+        {
+            "type": "Button",
+            "caption": "Ansichten auflisten",
+            "onClick": "echo GKT_Execute($id, '{\"cmd\":\"listViews\"}');"
+        }
+    ]
+}

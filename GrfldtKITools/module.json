@@ -1,0 +1,13 @@
+{
+    "id": "{6641EFD3-8E93-4B5D-930F-B9AF715AC06C}",
+    "name": "GrfldtKITools",
+    "type": 3,
+    "vendor": "Grfldt",
+    "aliases": [
+        "Grfldt KI Tools für IPSView"
+    ],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "GKT"
+}
