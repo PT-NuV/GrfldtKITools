@@ -53,8 +53,10 @@ Wenn die Symcon-Funktion `GKT_Execute` aufrufbar ist (z. B. über einen Skript-A
 6. **Nur echte IDs verwenden.** Jede Symcon-Objekt-ID in `ID` muss existieren (vorher mit `symcon_find` prüfen).
    Seitennamen in Verweisen müssen exakt stimmen, einschließlich Groß-/Kleinschreibung.
 7. **Den Nutzer prüfen lassen.** Das Modul kann nicht sehen, wie die Ansicht auf dem Gerät aussieht. Nach jeder
-   sichtbaren Änderung den Nutzer bitten, die Ansicht in der App neu zu laden und zu prüfen. Der Zwischenspeicher
-   von IPSViewConnect wird nach jedem Speichern automatisch geleert.
+   sichtbaren Änderung den Nutzer bitten, die Ansicht zu prüfen. Der Zwischenspeicher von IPSViewConnect wird nach
+   jedem Speichern automatisch geleert; geöffnete Clients laden die Ansicht dann meist von selbst neu. Hat die KI
+   einen Browser, kann sie die Web-Ansicht von IPSViewConnect selbst ansehen; das Kennwort gibt der Nutzer ein, und
+   ein Neuladen der Seite fragt es erneut ab.
 8. **In kleinen Schritten bauen.** Lieber eine Seite oder Karte nach der anderen als eine ganze Ansicht auf einmal.
 9. **Medien der Ansicht ablegen**, wo der Nutzer es möchte (z. B. eine eigene Kategorie für IPSView-Medien).
 10. **Neue Ansichten nur mit Freigabe.** `createView` legt ein Objekt außerhalb der Instanz an und funktioniert nur,
@@ -223,7 +225,7 @@ verhalten sich wie die Button-Typen, zeigen aber `Image1`/`Image2`.
 | 1 | Zuordnungen (`Associations`) |
 | 2 | Prozent (mit `Min`/`Max`) |
 | 3 / 4 / 5 | Zeitstempel / Datum / Uhrzeit |
-| 6 | Formatierung aus Symcon übernehmen |
+| 6 | Formatierung aus Symcon übernehmen (Einheit, Nachkommastellen, Zuordnungstexte aus Profil bzw. Darstellung) – **die beste Wahl für Variablen mit Profil** |
 | 100 | Text: **nur bei `IPSFlowText`**; bei `IPSVarLabel` bleibt das Feld sonst leer (das Modul lehnt es ab) |
 
 ### Farben, Schrift, Ebenen
@@ -313,7 +315,7 @@ Definition verwenden oder den Nutzer bitten, eine anzulegen.
 | Beobachtung | Ursache | Lösung |
 |---|---|---|
 | Container bleibt leer | Seite ohne `PopupWidth`/`PopupHeight` | Größe setzen (`setPage`) |
-| Einheit fehlt bei einer Wertanzeige | `Step` 0 nutzt das Profil nicht | `Suffix` setzen oder `Step` 6 |
+| Einheit fehlt oder Zahl statt Text (z. B. „4“ statt „geparkt“) | `Step` 0 nutzt das Profil nicht | `Step` 6 setzen (oder `Suffix`/`Digits` von Hand) |
 | Zahl ohne Nachkommastellen („8 °C“ statt „8,4 °C“) | bei `Step` 0 ist `Digits` standardmäßig 0 | `Digits` setzen, z. B. 1 |
 | Wertanzeige leer | `Step` 100 bei einem `IPSVarLabel` | `Step` weglassen (0) oder 6 |
 | Text wird abgeschnitten, Einheit fehlt | Feld zu schmal, Text bricht in eine unsichtbare zweite Zeile um | breiter machen oder Schrift verkleinern |
