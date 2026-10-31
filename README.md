@@ -134,6 +134,8 @@ der Antwort aus „Ergebnis“ und der Symcon- und IPSView-Version.
 
 ## Versionen
 
+- **1.4, Build 9 (Beta):** KI-Anleitung: kleine Symbole mit großer Tippfläche; mehrere Symbole für einen Schalter
+  als einzelne Elemente statt mit Sammelschalter.
 - **1.4 (Beta):** Verweise `"ref:Name"` auf Bilder und Elemente innerhalb eines `apply`; Prüfung der Bilder in
   Zuordnungen (`Associations`) vor dem Speichern; KI-Anleitung um bewährte Muster ergänzt (Symbole für An/Aus und
   Zustände, Popups aus Karten, ein Schalter für mehrere Symbole) und Darstellungsart 6 für Werte mit Profil empfohlen.

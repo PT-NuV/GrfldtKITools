@@ -303,9 +303,15 @@ Element, z. B. Legende eines Diagramms schalten).
   `Image2` = Bild „aus“ (grau), `BackColor1`/`BackColor2` `"#00000000"` (durchsichtig), ohne Text.
 - **Zustand als Bild** (Fenster zu/gekippt/offen): `IPSAssociationImage` mit `Readonly: true` und `Associations`
   mit `Image` je Wert.
-- **Mehrere Symbole für einen Schalter** (z. B. acht Deckenspots an einem Kreis): jedes Symbol als `IPSToggleImage`
-  auf dieselbe Variable und darüber ein durchsichtiger `IPSToggleButton` (Ebene 4, Farben `"#00000000"`, `BW` 0, ohne
-  Text) über die ganze Fläche, damit ein Tippen irgendwo alle schaltet.
+- **Kleine Symbole mit großer Tippfläche:** Tippflächen sollten wie bei den übrigen Bedienelementen etwa 40 × 40
+  groß sein, auch wenn das Symbol klein erscheinen soll. Dafür das Bild mit durchsichtigem Rand anlegen (z. B. ein
+  48-px-Bild mit einem 22-px-Punkt in der Mitte) und das Element 40 × 40 groß machen; das Bild wird auf die
+  Elementgröße skaliert, der Punkt bleibt klein.
+- **Mehrere Symbole für einen Schalter** (z. B. acht Deckenspots an einem Kreis): jedes Symbol als eigenes
+  `IPSToggleImage` auf dieselbe Variable, jedes mit eigener Tippfläche (siehe oben). Symbole, die im Raum auf einer
+  Linie liegen, auch im Plan auf einer Geraden mit gleichen Abständen anordnen. Überlappende Tippflächen sind hier
+  unproblematisch, weil alle dasselbe schalten. Keinen durchsichtigen Sammelschalter darüberlegen: Jedes Symbol soll
+  sich wie die anderen Lichter bedienen lassen.
 - **Popup aus einer Karte:** Karte aus Fläche und Texten, darüber ein durchsichtiger `IPSDetailButton` auf Ebene 4
   in Kartengröße mit `Text2` = Popup-Seite. Das Popup schließt beim Tippen außerhalb.
 - **Spalte mit Gerätedaten:** platzsparend untereinander, Gerätename als Überschrift, darunter je Zeile Bezeichnung
