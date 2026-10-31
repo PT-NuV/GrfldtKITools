@@ -11,7 +11,7 @@ Symcon-MCP-Server, lässt sich aber genauso aus eigenen PHP-Skripten nutzen.
   (Entwickler von IPSView) zur Verfügung gestellt hat. Vielen Dank dafür! Die Referenz liegt nicht bei; die für
   die Arbeit nötigen Informationen stehen in `KI-ANLEITUNG.md`.
 - **Lizenz:** MIT, siehe `LICENSE`
-- **Version:** 1.3
+- **Version:** 1.4
 
 > **Inoffizielles Modul.** Es wird weder vom Entwickler von IPSView noch von Symcon unterstützt. Es arbeitet mit
 > dem internen Dateiformat von IPSView. Getestet mit IPSView 6.5 (6.5.20) und Symcon 9.1 Rust Edition (Beta).
@@ -116,8 +116,9 @@ Bild-Medienobjekts.
 
 Bilder: `addImage` nimmt ein Bild-Medienobjekt (`media`), eine Datei relativ zum Symcon-Ordner (`file`) oder
 Base64-Daten (`data`, PNG oder JPG, höchstens 1 MB). Das Ergebnis enthält die Bildkennung (`refs`), die dann in
-`Image1` eines `IPSImage` eingetragen wird. Interne Icons von IPSView brauchen kein eigenes Bild:
-`"Image1":"icon:Thermostat"` oder `"Image1":3008`.
+`Image1` eines `IPSImage` eingetragen wird. Mit `"ref":"name"` beim `addImage` lässt sich das Bild im selben
+`apply` direkt als `"Image1":"ref:name"` verwenden (ab 1.4, auch in `Associations`). Interne Icons von IPSView
+brauchen kein eigenes Bild: `"Image1":"icon:Thermostat"` oder `"Image1":3008`.
 
 `Widget`-Einstellungen werden automatisch in die von IPSView erwartete Form gebracht (Schlüssel klein, Werte als
 Text).
@@ -130,3 +131,10 @@ Eckenradien `CR1` bis `CR4`, Rahmenstärke `BW`.
 
 Dies ist eine Beta-Version. Fehler, Wünsche und Erfahrungen bitte im Beta-Forum melden, am besten mit dem Befehl,
 der Antwort aus „Ergebnis“ und der Symcon- und IPSView-Version.
+
+## Versionen
+
+- **1.4 (Beta):** Verweise `"ref:Name"` auf Bilder und Elemente innerhalb eines `apply`; Prüfung der Bilder in
+  Zuordnungen (`Associations`) vor dem Speichern; KI-Anleitung um bewährte Muster ergänzt (Symbole für An/Aus und
+  Zustände, Popups aus Karten, ein Schalter für mehrere Symbole) und Darstellungsart 6 für Werte mit Profil empfohlen.
+- **1.3 (Beta):** erste öffentliche Version.

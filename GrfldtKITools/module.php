@@ -22,7 +22,7 @@
  */
 class GrfldtKITools extends IPSModule
 {
-    private const VERSION = '1.3';
+    private const VERSION = '1.4';
     private const IVC_MODULE_ID = '{A9AD5292-2244-15E7-6007-C7B75164AE00}';
 
     // Reguläre Elementtypen laut Datenmodell-Referenz von IPSView 6.5 (dürfen neu angelegt werden)
@@ -289,7 +289,9 @@ class GrfldtKITools extends IPSModule
             'resizeOptions' => self::RESIZE_OPTIONS,
             'controlTypes' => self::CONTROL_TYPES,
             'hints' => [
-                'Image1/Image2/PageImage: Bildkennung aus addImage, interne Icon-Nummer oder "icon:Name" (siehe icons)',
+                'Image1/Image2/PageImage/Associations[].Image: Bildkennung, interne Icon-Nummer, "icon:Name" (siehe icons) oder "ref:Name" (addImage mit ref weiter vorne in derselben Anweisung)',
+                '"ref:Name" geht auch für ItemIDs aus addControls mit ref (z. B. in items)',
+                'Werte mit Profil: IPSVarLabel mit Step 6 anlegen (Einheit und Format aus dem Profil)',
                 'Widget: Schlüssel klein, Werte als Text; das Modul wandelt das automatisch um',
                 'TextAlign: 1–9 = oben/mitte/unten × links/mittig/rechts; bei IPSInlinePage Scrollrichtung 0/1/2',
                 'Step bei IPSVarLabel = Darstellungsart: 0 Wert, 1 Zuordnungen, 2 Prozent, 3–5 Zeitstempel, 6 Symcon (100 Text nur bei IPSFlowText); bei 0 Digits für Nachkommastellen setzen',
@@ -436,6 +438,10 @@ class GrfldtKITools extends IPSModule
 
     private function ApplyOp(object $view, array $op, array &$refs): string
     {
+        // Verweise "ref:Name" auf Bilder (addImage) oder Elemente (addControls) aus derselben Anweisung auflösen
+        if (($op['op'] ?? '') !== 'addImage') {
+            $op = $this->ResolveRefs($op, $refs);
+        }
         switch ($op['op'] ?? '') {
             case 'setView':
                 foreach ($this->RequireArray($op, 'values') as $k => $v) {
@@ -693,6 +699,15 @@ class GrfldtKITools extends IPSModule
         if ($k === 'Image1' || $k === 'Image2') {
             $v = $this->ImageRef($v);
         }
+        if ($k === 'Associations' && is_array($v)) {
+            foreach ($v as $i => $a) {
+                if (is_array($a) && isset($a['Image'])) {
+                    $v[$i]['Image'] = $this->ImageRef($a['Image']);
+                } elseif (is_object($a) && isset($a->Image)) {
+                    $a->Image = $this->ImageRef($a->Image);
+                }
+            }
+        }
         if ($k === 'ItemLayer' && !in_array((int) $v, [1, 2, 3, 4], true)) {
             throw new Exception('ItemLayer muss 1 (Hintergrund), 2 (Mitte), 3 (Vordergrund) oder 4 (Overlay) sein.');
         }
@@ -730,6 +745,26 @@ class GrfldtKITools extends IPSModule
         $v = (int) $v;
         if ($v > 0 && $v < self::ICON_LIMIT && !isset(self::INTERNAL_ICONS[$v])) {
             throw new Exception('Internes Icon ' . $v . ' gibt es nicht. Liste mit {"cmd":"icons"}.');
+        }
+        return $v;
+    }
+
+    // Ersetzt Texte der Form "ref:Name" durch die Bildkennung bzw. ItemID, die eine frühere Operation derselben
+    // Anweisung unter diesem Namen geliefert hat (addImage/addControls mit "ref").
+    private function ResolveRefs($v, array $refs)
+    {
+        if (is_array($v)) {
+            foreach ($v as $k => $item) {
+                $v[$k] = $this->ResolveRefs($item, $refs);
+            }
+            return $v;
+        }
+        if (is_string($v) && preg_match('/^ref:([A-Za-z0-9_.\-]+)$/', $v, $m)) {
+            if (!array_key_exists($m[1], $refs)) {
+                throw new Exception('Verweis "' . $v . '" unbekannt. Verweise gelten nur für addImage/addControls mit "ref" '
+                    . 'weiter vorne in derselben Anweisung.');
+            }
+            return $refs[$m[1]];
         }
         return $v;
     }
@@ -957,6 +992,14 @@ class GrfldtKITools extends IPSModule
                 foreach (['Image1', 'Image2'] as $k) {
                     if (isset($c->$k) && (int) $c->$k > 0 && !$imageOk($c->$k)) {
                         $problems[] = $where . ': Bild ' . $c->$k . ' fehlt';
+                    }
+                }
+                if (isset($c->Associations) && is_array($c->Associations)) {
+                    foreach ($c->Associations as $a) {
+                        $img = (int) ($a->Image ?? 0);
+                        if ($img > 0 && !$imageOk($img)) {
+                            $problems[] = $where . ': Bild ' . $img . ' fehlt (Zuordnung "' . ($a->Text ?? ($a->Value ?? '?')) . '")';
+                        }
                     }
                 }
             }

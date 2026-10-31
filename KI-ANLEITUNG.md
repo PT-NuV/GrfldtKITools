@@ -96,7 +96,7 @@ Alle Operationen eines `apply` werden zusammen geprüft und gespeichert. Schläg
 | `deleteControls` | `page`, `items` | |
 | `moveControls` | `page`, `items` oder `"all"`, `dx`, `dy` | verschieben |
 | `transferControls` | `from`, `to`, `items`, `dx?`, `dy?` | auf eine andere Seite verschieben |
-| `addImage` | `media` oder `file` oder `data`, `ref?` | Bild in die Ansicht aufnehmen; Ergebnis `refs` enthält die Bildkennung |
+| `addImage` | `media` oder `file` oder `data`, `ref?` | Bild in die Ansicht aufnehmen; Ergebnis `refs` enthält die Bildkennung; mit `ref` in derselben Anweisung als `"ref:Name"` nutzbar |
 | `setBackground` | `page`, `media`/`file`/`hash`, `layout?` | Seitenhintergrund (siehe Hinweis zu Handys in Abschnitt 6) |
 
 Komfortfunktionen des Moduls:
@@ -104,7 +104,13 @@ Komfortfunktionen des Moduls:
 - **Farben** als `"#RRGGBB"` oder `"#AARRGGBB"`; das Modul wandelt sie in Farbobjekte um.
 - **IPSInlinePage** mit `"container":"content"` (Containerrolle) und `"page":"Seitenname"` (Startseite).
 - **IPSInlineButton/IPSInlineImage** mit `"target":"content"` und `"page":"Seitenname"`.
-- **Interne Icons** in `Image1`, `Image2`, `PageImage` als `"icon:Thermostat"`, `"icon:3008"` oder `3008`.
+- **Interne Icons** in `Image1`, `Image2`, `PageImage` und `Associations[].Image` als `"icon:Thermostat"`,
+  `"icon:3008"` oder `3008`.
+- **Verweise `"ref:Name"`** (ab 1.4): Ein Text `"ref:Name"` wird durch das Ergebnis einer früheren Operation derselben
+  Anweisung ersetzt, die `"ref":"Name"` hatte: Bildkennung bei `addImage`, ItemID bei `addControls`. So lässt sich ein
+  Bild aufnehmen und im selben `apply` verwenden, ohne die Kennung abzuschreiben:
+  `{"op":"addImage","data":"…","ref":"lampe_an"}`, danach `"Image1":"ref:lampe_an"`. Ein unbekannter Verweis bricht
+  die Anweisung ab.
 - **`Widget`** darf mit beliebiger Schreibweise und Zahlen/Wahrheitswerten übergeben werden; das Modul schreibt die
   Schlüssel klein und die Werte als Text.
 - Das Modul vergibt `ItemID`, `ItemName` und `ItemIdx` selbst.
@@ -246,7 +252,9 @@ verhalten sich wie die Button-Typen, zeigen aber `Image1`/`Image2`.
  {"Idx":1,"Value":true,"Text":"Offen","ForeColor":{"A":255,"R":255,"G":255,"B":255},"BackColor":{"A":255,"R":200,"G":60,"B":60}}]
 ```
 
-`Value` muss zum Typ der Variable passen (boolesch, Zahl oder Text); `Begin`/`End` für Bereiche.
+`Value` muss zum Typ der Variable passen (boolesch, Zahl oder Text); `Begin`/`End` für Bereiche. Bei
+`IPSAssociationImage` und `IPSAssociationButton` gehört zu jeder Zuordnung ein Bild in `Image` (Bildkennung, Icon
+oder `"ref:Name"`). Das Modul prüft vor dem Speichern, ob diese Bilder in der Ansicht vorhanden sind.
 
 ### Dynamik (`Remote`)
 
@@ -280,8 +288,28 @@ Element, z. B. Legende eines Diagramms schalten).
 | 2013 | Battery | 3010 | Window | 4014 | Garage |
 | 2015 | Security | 3033 | Sun | 4027 | Moon |
 
+- **Eigene Symbole per Base64:** klein halten (z. B. 24–48 px, als PNG mit wenigen Farben, möglichst unter
+  1,2 KB Base64), damit beim Übertragen keine Zeichen verloren gehen. Am sichersten mit `"ref:Name"` arbeiten; wer
+  Kennungen von Hand einträgt, prüft sie vorher mit einem `dryRun` des `addImage`.
 - **Wichtig für Smartphones:** Seitenhintergründe (`setBackground`) werden auf kleineren Geräten nicht mitskaliert.
   Grundrisse und andere Bilder, die mitskalieren sollen, als `IPSImage`-Element anlegen.
+
+### Bewährte Muster
+
+- **Grundriss mit Bedienelementen:** Grundriss als `IPSImage` auf Ebene 1, Bedienelemente auf Ebene 3. Rollos und
+  Raffstores außen vor das jeweilige Fenster setzen, damit der Grundriss frei bleibt. Ein Rollo-Feld: `IPSShapeRect`
+  als Fläche, zwei `IPSValueButton` (↑ mit `ValueSelected` 0, ↓ mit 100) und dazwischen ein `IPSVarLabel` mit `Step` 6.
+- **An/Aus als Symbol** (Licht, Steckdose): `IPSToggleImage` mit `Image1` = Bild „an“ (z. B. leuchtend),
+  `Image2` = Bild „aus“ (grau), `BackColor1`/`BackColor2` `"#00000000"` (durchsichtig), ohne Text.
+- **Zustand als Bild** (Fenster zu/gekippt/offen): `IPSAssociationImage` mit `Readonly: true` und `Associations`
+  mit `Image` je Wert.
+- **Mehrere Symbole für einen Schalter** (z. B. acht Deckenspots an einem Kreis): jedes Symbol als `IPSToggleImage`
+  auf dieselbe Variable und darüber ein durchsichtiger `IPSToggleButton` (Ebene 4, Farben `"#00000000"`, `BW` 0, ohne
+  Text) über die ganze Fläche, damit ein Tippen irgendwo alle schaltet.
+- **Popup aus einer Karte:** Karte aus Fläche und Texten, darüber ein durchsichtiger `IPSDetailButton` auf Ebene 4
+  in Kartengröße mit `Text2` = Popup-Seite. Das Popup schließt beim Tippen außerhalb.
+- **Spalte mit Gerätedaten:** platzsparend untereinander, Gerätename als Überschrift, darunter je Zeile Bezeichnung
+  (`IPSTxtLabel`) und Wert (`IPSVarLabel`, `Step` 6).
 
 ## 8. HTML-Boxen
 
@@ -323,6 +351,7 @@ Definition verwenden oder den Nutzer bitten, eine anzulegen.
 | Änderungen weg | Designer hat danach gespeichert | Designer schließen, Sicherung prüfen |
 | App zeigt alten Stand | Zwischenspeicher | `resetCache`, Ansicht in der App neu laden |
 | „Position ist verschlüsselt“ | Demo-Lizenz von IPSView | Positionen nur im Designer ändern |
+| Symbol fehlt, Prüfung meldet „Bild … fehlt“ | Bildkennung falsch abgeschrieben oder Bild beim Übertragen beschädigt | `"ref:Name"` verwenden; Bild kleiner machen und neu aufnehmen |
 
 ## 12. Grenzen
 
