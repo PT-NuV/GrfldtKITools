@@ -45,7 +45,12 @@ Wenn die Symcon-Funktion `GKT_Execute` aufrufbar ist (z. B. über einen Skript-A
 2. **Jede Änderung zuerst mit `"dryRun":true` schicken.** Erst wenn die Probe ohne Fehler durchläuft, ohne
    `dryRun` wiederholen.
 3. **Der Designer muss geschlossen sein.** Ist die Ansicht im IPSView Designer offen, überschreibt dessen nächstes
-   Speichern die Änderungen des Moduls. Den Nutzer vor größeren Änderungen daran erinnern.
+   Speichern die Änderungen des Moduls. Das gilt auch für einen Designer-Tab, der schon länger offen ist: Er hält
+   den alten Stand und schreibt ihn beim Speichern zurück. Den Nutzer bitten, den Designer vor der Arbeit **frisch zu
+   öffnen bzw. neu zu laden** und nach dem Speichern zu schließen. Ab Version 1.5 meldet das Modul in `outline` und
+   `apply` unter `externalChange`, wenn die Ansicht seit dem letzten Speichern durch das Modul anderweitig geändert
+   wurde; ist der Elementzähler kleiner geworden, wurde vermutlich ein alter Stand zurückgeschrieben. Dann sofort mit
+   dem Nutzer klären und gegebenenfalls eine Sicherung zurückspielen.
 4. **Sicherungen nutzen.** Vor jedem Speichern legt das Modul automatisch eine Sicherung an (`backups`,
    `restore`). Bei einem Fehler zurückspielen statt von Hand zu reparieren.
 5. **Nur ändern, was gewünscht ist.** Lizenz-, Versions-, Passwort-, Farb- und Sondereinstellungen bestehender
@@ -96,6 +101,8 @@ Alle Operationen eines `apply` werden zusammen geprüft und gespeichert. Schläg
 | `deleteControls` | `page`, `items` | |
 | `moveControls` | `page`, `items` oder `"all"`, `dx`, `dy` | verschieben |
 | `transferControls` | `from`, `to`, `items`, `dx?`, `dy?` | auf eine andere Seite verschieben |
+| `copyControls` | `from`, `to?`, `items`, `dx?`, `dy?`, `replaceIds?`, `replaceText?`, `ref?` | Elemente kopieren (neue ItemIDs); mit `ref` liefert `refs` die neuen ItemIDs |
+| `copyPage` | `page`, `to`, `title?`, `replaceIds?`, `replaceText?` | Seite samt Elementen kopieren, z. B. ein Popup für einen weiteren Raum |
 | `addImage` | `media` oder `file` oder `data`, `ref?` | Bild in die Ansicht aufnehmen; Ergebnis `refs` enthält die Bildkennung; mit `ref` in derselben Anweisung als `"ref:Name"` nutzbar |
 | `setBackground` | `page`, `media`/`file`/`hash`, `layout?` | Seitenhintergrund (siehe Hinweis zu Handys in Abschnitt 6) |
 
@@ -114,6 +121,12 @@ Komfortfunktionen des Moduls:
 - **`Widget`** darf mit beliebiger Schreibweise und Zahlen/Wahrheitswerten übergeben werden; das Modul schreibt die
   Schlüssel klein und die Werte als Text.
 - Das Modul vergibt `ItemID`, `ItemName` und `ItemIdx` selbst.
+- **Kopieren mit Austausch** (ab 1.5): `replaceIds` ist ein Objekt `{"alte ID":"neue ID"}` und gilt für `ID`,
+  `Widget.objectid`, `Widget.id2`, `WidgetVars.WidgetID` und die Variablen in `Remote`; `replaceText` ersetzt
+  Textteile in `Text1`, `Text2`, `Prefix`, `Suffix`, den Seitenverweisen und `Widget.longpressparam`. Beispiel: ein
+  Heizungs-Popup für einen anderen Raum:
+  `{"op":"copyPage","page":"EG Heizung Wohnzimmer","to":"DG Heizung Bad","replaceIds":{"11111":22222,"33333":44444},"replaceText":{"Wohnzimmer":"Bad"}}`.
+  So bleiben Gestaltung und Abstände einheitlich, und es muss nicht jedes Element neu beschrieben werden.
 
 Beispiel:
 
@@ -294,6 +307,28 @@ Element, z. B. Legende eines Diagramms schalten).
 - **Wichtig für Smartphones:** Seitenhintergründe (`setBackground`) werden auf kleineren Geräten nicht mitskaliert.
   Grundrisse und andere Bilder, die mitskalieren sollen, als `IPSImage`-Element anlegen.
 
+### Diagramme
+
+- `IPSWidgetIPSViewChart` (von IPSView gezeichnet) und `IPSWidgetMediaChart` zeigen ein **Symcon-Diagramm-Objekt**
+  (Medium Typ 4) oder eine einzelne archivierte Variable. Beim Element `ID` **und** `Widget.objectid` auf dieses
+  Objekt setzen; fehlt `objectid`, zeigt IPSView nur den Platzhalter „Chart“ (das Modul übernimmt ab 1.5 die `ID`
+  und meldet fehlende Angaben unter `hints`).
+- Ein Diagramm-Objekt per Skript anlegen: `IPS_CreateMedia(4)`, dann zuerst `IPS_SetMediaFile($id,
+  'media/<id>.chart', false)`, erst danach `IPS_SetMediaContent($id, base64_encode(json_encode($cfg)))`. Ohne Datei
+  bleibt der Inhalt leer.
+- Aufbau: `{"stacking":"presentation","datasets":[{"variableID":12345,"title":"Ist","strokeColor":"#f5b453",
+  "fillColor":"clear","side":"left","visible":true}, …]}`. `fillColor` `"clear"` zeichnet eine Linie ohne Fläche.
+  Reihen mit unterschiedlichen Variablenprofilen bekommen eigene Achsen; mit `"profile":"~Temperature.Room"` an einer
+  Reihe teilen sie sich eine Achse. Boolesche Reihen (`"type":"bool"`) werden als Band gezeichnet (Fläche bei
+  `true`); mit `"side":"right"` und `Widget.showaxes` `"1"` erscheint keine 0/1-Achse, mit `"title":" "` keine
+  Beschriftung im Diagramm. Soll das Band den umgekehrten Zustand zeigen (z. B. „Ventil offen“, wenn die Variable
+  `true` bei „Zu“ ist), eine archivierte Hilfsvariable verwenden.
+- Bewährte `Widget`-Werte: `timeperiod` `"1"` (Tag), `continuousspan` `"true"` (gleitende 24 Stunden statt
+  Kalendertag), `pointdotradius` `"0"`, `graphlinewidth` `"2"`, `showlegend`, `showtooltips` `"2"`, `dynamicscaling`
+  `"true"` mit `dynamicscalingtype` `"0"`, `scalefontcolor`/`scalegridcolor`/`scalelinecolor`.
+- Die Variablen müssen archiviert werden. **Leeres Diagramm trotz Archivdaten:** Das Diagramm nutzt die stündlichen
+  Aggregate; fehlen sie, mit `AC_ReAggregateVariable` neu berechnen lassen.
+
 ### Bewährte Muster
 
 - **Grundriss mit Bedienelementen:** Grundriss als `IPSImage` auf Ebene 1, Bedienelemente auf Ebene 3. Rollos und
@@ -312,6 +347,10 @@ Element, z. B. Legende eines Diagramms schalten).
   Linie liegen, auch im Plan auf einer Geraden mit gleichen Abständen anordnen. Überlappende Tippflächen sind hier
   unproblematisch, weil alle dasselbe schalten. Keinen durchsichtigen Sammelschalter darüberlegen: Jedes Symbol soll
   sich wie die anderen Lichter bedienen lassen.
+- **Langes Drücken öffnet ein Popup** (z. B. kurz tippen = Licht an/aus, lang drücken = Helligkeit):
+  `Widget.longpressaction` `"20"` und `Widget.longpressparam` = Name der Popup-Seite. Das Modul prüft, ob die Seite
+  existiert.
+- **Regler ohne Teilstriche:** `IPSSlider` mit `Widget.tickheight` `"0"`.
 - **Popup aus einer Karte:** Karte aus Fläche und Texten, darüber ein durchsichtiger `IPSDetailButton` auf Ebene 4
   in Kartengröße mit `Text2` = Popup-Seite. Das Popup schließt beim Tippen außerhalb.
 - **Spalte mit Gerätedaten:** platzsparend untereinander, Gerätename als Überschrift, darunter je Zeile Bezeichnung
@@ -357,6 +396,9 @@ Definition verwenden oder den Nutzer bitten, eine anzulegen.
 | Änderungen weg | Designer hat danach gespeichert | Designer schließen, Sicherung prüfen |
 | App zeigt alten Stand | Zwischenspeicher | `resetCache`, Ansicht in der App neu laden |
 | „Position ist verschlüsselt“ | Demo-Lizenz von IPSView | Positionen nur im Designer ändern |
+| Diagramm zeigt nur „Chart“ | `Widget.objectid` fehlt oder ist 0 | `objectid` = ID des Diagramm-Objekts |
+| Diagramm leer, obwohl archiviert wird | stündliche Aggregate fehlen | `AC_ReAggregateVariable` |
+| Seiten plötzlich leer, viele Änderungen weg | alter Designer-Tab hat gespeichert (`externalChange`) | Sicherung mit `restore` zurückspielen, Designer frisch öffnen |
 | Symbol fehlt, Prüfung meldet „Bild … fehlt“ | Bildkennung falsch abgeschrieben oder Bild beim Übertragen beschädigt | `"ref:Name"` verwenden; Bild kleiner machen und neu aufnehmen |
 
 ## 12. Grenzen

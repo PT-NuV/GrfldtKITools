@@ -22,7 +22,7 @@
  */
 class GrfldtKITools extends IPSModule
 {
-    private const VERSION = '1.4';
+    private const VERSION = '1.5';
     private const IVC_MODULE_ID = '{A9AD5292-2244-15E7-6007-C7B75164AE00}';
 
     // Reguläre Elementtypen laut Datenmodell-Referenz von IPSView 6.5 (dürfen neu angelegt werden)
@@ -169,6 +169,8 @@ class GrfldtKITools extends IPSModule
     {
         parent::Create();
         $this->RegisterPropertyInteger('BackupKeep', 20);
+        // Stand jeder Ansicht nach dem letzten Speichern durch das Modul (erkennt Überschreiben durch den Designer)
+        $this->RegisterAttributeString('SavedStates', '{}');
         $this->RegisterVariableString('Command', 'Befehl', '', 1);
         $this->RegisterVariableString('Result', 'Ergebnis', '', 2);
         $this->EnableAction('Command');
@@ -280,6 +282,8 @@ class GrfldtKITools extends IPSModule
                 'deleteControls' => '{page, items:[ItemID]}',
                 'moveControls' => '{page, items:[ItemID]|"all", dx, dy}',
                 'transferControls' => '{from, to, items:[ItemID]|"all", dx?, dy?}',
+                'copyControls' => '{from, to?, items:[ItemID]|"all", dx?, dy?, replaceIds?:{alt:neu}, replaceText?:{alt:neu}, ref?}',
+                'copyPage' => '{page, to, title?, replaceIds?:{alt:neu}, replaceText?:{alt:neu}}',
                 'addImage' => '{media? | file? | data? (Base64 PNG/JPG), ref?}',
                 'setBackground' => '{page, media? | file? | hash?, layout?}'
             ],
@@ -354,7 +358,7 @@ class GrfldtKITools extends IPSModule
         foreach ($view->Images ?? [] as $img) {
             $images[] = ['hash' => $img->ImageHash, 'type' => $img->ImageType, 'w' => $img->Width ?? null, 'h' => $img->Height ?? null];
         }
-        return [
+        $out = [
             'view' => ['id' => $viewID, 'Name' => $view->Name ?? '', 'Width' => $view->Width ?? null, 'Height' => $view->Height ?? null,
                 'Hardware' => $view->Hardware ?? '', 'Orientation' => $view->Orientation ?? '', 'ViewVersion' => $view->ViewVersion ?? null,
                 'ItemID' => $view->ItemID ?? null],
@@ -362,6 +366,11 @@ class GrfldtKITools extends IPSModule
             'pages' => $pages,
             'images' => $images
         ];
+        $ext = $this->ExternalChange($viewID, $view);
+        if ($ext !== null) {
+            $out['externalChange'] = $ext;
+        }
+        return $out;
     }
 
     private function GetControlsCmd(int $viewID, string $pageName, array $items): array
@@ -410,6 +419,7 @@ class GrfldtKITools extends IPSModule
         }
         $original = IPS_GetMediaContent($viewID);
         $view = $this->LoadView($viewID);
+        $external = $this->ExternalChange($viewID, $view);
         $refs = [];
         $log = [];
         foreach ($ops as $n => $op) {
@@ -426,11 +436,19 @@ class GrfldtKITools extends IPSModule
             throw new Exception('Prüfung fehlgeschlagen, nichts gespeichert: ' . implode(' | ', array_slice($problems, 0, 25)));
         }
         $result = ['refs' => $refs, 'log' => $log, 'warnings' => $problems, 'saved' => false];
+        $hints = $this->Hints($view);
+        if ($hints) {
+            $result['hints'] = $hints;
+        }
+        if ($external !== null) {
+            $result['externalChange'] = $external;
+        }
         if ($dryRun) {
             return $result;
         }
         $result['backup'] = $this->CreateBackup($viewID, $original);
         $this->SaveView($viewID, $view);
+        $this->RememberState($viewID);
         $result['saved'] = true;
         $result['cacheReset'] = $this->ResetClientCache();
         return $result;
@@ -557,6 +575,7 @@ class GrfldtKITools extends IPSModule
                         $this->SetControlValue($c, $k, $v);
                     }
                     $this->CheckVisuType($c);
+                    $this->NormalizeChart($c);
                     $n++;
                 }
                 return $n . ' Elemente geändert';
@@ -597,6 +616,52 @@ class GrfldtKITools extends IPSModule
                 }
                 $from->Controls = $keep;
                 return $n . ' Elemente von "' . $from->PageName . '" nach "' . $to->PageName . '" übertragen';
+
+            case 'copyControls':
+                $from = $this->FindPage($view, $this->RequireString($op, 'from'));
+                $to = $this->FindPage($view, (string) ($op['to'] ?? $from->PageName));
+                $items = $this->ResolveItems($from, $op['items'] ?? []);
+                $new = [];
+                foreach ($from->Controls as $c) {
+                    if (in_array($c->ItemID ?? null, $items, true)) {
+                        $copy = $this->CopyControl($view, $c, $op);
+                        $this->Shift($copy, (float) ($op['dx'] ?? 0), (float) ($op['dy'] ?? 0));
+                        $to->Controls[] = $copy;
+                        $new[] = $copy->ItemID;
+                    }
+                }
+                if (isset($op['ref'])) {
+                    $refs[$op['ref']] = $new;
+                }
+                return count($new) . ' Elemente nach "' . $to->PageName . '" kopiert (' . implode(',', $new) . ')';
+
+            case 'copyPage':
+                $src = $this->FindPage($view, $this->RequireString($op, 'page'));
+                $name = $this->RequireString($op, 'to');
+                if ($this->FindPage($view, $name, false)) {
+                    throw new Exception('Seite "' . $name . '" gibt es schon.');
+                }
+                if (!empty($src->IsMainPage)) {
+                    throw new Exception('Die Hauptseite kann nicht kopiert werden.');
+                }
+                $page = json_decode(json_encode($src));
+                $page->PageName = $name;
+                $page->PageTitle = isset($op['title']) ? (string) $op['title'] : $this->ReplaceTexts((string) ($src->PageTitle ?? $name), $op);
+                $maxPos = 0;
+                foreach ($view->Pages as $p) {
+                    $maxPos = max($maxPos, (int) ($p->Position ?? 0));
+                }
+                $page->Position = $maxPos + 10;
+                $page->Controls = [];
+                $new = [];
+                foreach ($src->Controls as $c) {
+                    $copy = $this->CopyControl($view, $c, $op);
+                    $page->Controls[] = $copy;
+                    $new[] = $copy->ItemID;
+                }
+                $view->Pages[] = $page;
+                return 'Seite "' . $src->PageName . '" als "' . $name . '" kopiert (' . count($new) . ' Elemente'
+                    . ($new ? ', ' . min($new) . '–' . max($new) : '') . ')';
 
             case 'addImage':
                 $hash = $this->AddImage($view, $op);
@@ -663,6 +728,7 @@ class GrfldtKITools extends IPSModule
             $this->SetControlValue($c, $k, $v);
         }
         $this->CheckVisuType($c);
+        $this->NormalizeChart($c);
         $c->ItemID = $itemID;
         $c->ItemName = preg_replace('/^IPS/', '', $type) . $itemID;
         $c->ItemIdx = 0;
@@ -767,6 +833,143 @@ class GrfldtKITools extends IPSModule
             return $refs[$m[1]];
         }
         return $v;
+    }
+
+    // Kopie eines Elements mit neuer ItemID; IDs und Texte nach replaceIds/replaceText austauschen
+    private function CopyControl(object $view, object $c, array $op): object
+    {
+        $copy = json_decode(json_encode($c));
+        $ids = [];
+        foreach ((array) ($op['replaceIds'] ?? []) as $old => $newID) {
+            $ids[(int) $old] = (int) $newID;
+        }
+        $map = function ($v) use ($ids) {
+            return $ids[(int) $v] ?? $v;
+        };
+        if (isset($copy->ID)) {
+            $copy->ID = (int) $map($copy->ID);
+        }
+        foreach (['OnDownID', 'OnPressedID', 'OnReleasedID'] as $k) {
+            if (isset($copy->$k)) {
+                $copy->$k = (int) $map($copy->$k);
+            }
+        }
+        if (isset($copy->Widget) && is_object($copy->Widget)) {
+            foreach (['objectid', 'id2'] as $k) {
+                if (isset($copy->Widget->$k) && is_numeric($copy->Widget->$k)) {
+                    $copy->Widget->$k = (string) $map($copy->Widget->$k);
+                }
+            }
+            if (isset($copy->Widget->longpressparam)) {
+                $copy->Widget->longpressparam = $this->ReplaceTexts((string) $copy->Widget->longpressparam, $op);
+            }
+        }
+        if (isset($copy->WidgetVars) && is_object($copy->WidgetVars) && isset($copy->WidgetVars->WidgetID)) {
+            $copy->WidgetVars->WidgetID = (int) $map($copy->WidgetVars->WidgetID);
+        }
+        if (isset($copy->Remote) && is_object($copy->Remote)) {
+            foreach ($copy->Remote as $k => $v) {
+                if (strpos($k, 'Variable') === 0 && is_int($v) && $v > 0) {
+                    $copy->Remote->$k = (int) $map($v);
+                }
+            }
+        }
+        foreach (array_merge(['Text1', 'Text2', 'Prefix', 'Suffix'], self::INLINE_KEYS) as $k) {
+            if (isset($copy->$k) && is_string($copy->$k)) {
+                $copy->$k = $this->ReplaceTexts($copy->$k, $op);
+            }
+        }
+        if (isset($copy->ID) && $copy->ID > 0 && !IPS_ObjectExists($copy->ID)) {
+            throw new Exception('Objekt #' . $copy->ID . ' gibt es nicht.');
+        }
+        $itemID = (int) ($view->ItemID ?? 1);
+        $view->ItemID = $itemID + 1;
+        $copy->ItemID = $itemID;
+        $copy->ItemName = preg_replace('/^IPS/', '', $copy->Type ?? 'Item') . $itemID;
+        unset($copy->IsSelected);
+        $this->CheckVisuType($copy);
+        $this->NormalizeChart($copy);
+        return $copy;
+    }
+
+    private function ReplaceTexts(string $s, array $op): string
+    {
+        foreach ((array) ($op['replaceText'] ?? []) as $old => $new) {
+            if ($old !== '') {
+                $s = str_replace((string) $old, (string) $new, $s);
+            }
+        }
+        return $s;
+    }
+
+    // Diagramme brauchen Widget.objectid; fehlt sie, zeigt IPSView nur den Platzhalter "Chart".
+    // Komfort: ohne objectid wird die ID des Elements übernommen.
+    private function NormalizeChart(object $c): void
+    {
+        if (!in_array($c->Type ?? '', ['IPSWidgetIPSViewChart', 'IPSWidgetMediaChart', 'IPSWidgetPieChart'], true)) {
+            return;
+        }
+        $id = (int) ($c->ID ?? 0);
+        if (!isset($c->Widget) || !is_object($c->Widget)) {
+            $c->Widget = new stdClass();
+        }
+        $oid = (string) ($c->Widget->objectid ?? '');
+        if (($oid === '' || $oid === '0') && $id > 0) {
+            $c->Widget->objectid = (string) $id;
+        }
+    }
+
+    // Stand der Ansicht nach dem Speichern durch das Modul merken
+    private function RememberState(int $viewID): void
+    {
+        try {
+            $states = json_decode($this->ReadAttributeString('SavedStates'), true) ?: [];
+            $view = json_decode(base64_decode(IPS_GetMediaContent($viewID)));
+            $states[(string) $viewID] = ['hash' => md5(IPS_GetMediaContent($viewID)), 'itemID' => (int) ($view->ItemID ?? 0), 'time' => time()];
+            $this->WriteAttributeString('SavedStates', json_encode($states));
+        } catch (Throwable $e) {
+            // Merken ist nur eine Hilfe; Fehler hier dürfen das Speichern nicht verhindern
+        }
+    }
+
+    // Wurde die Ansicht seit dem letzten Speichern durch das Modul anderweitig geändert (z. B. im Designer)?
+    private function ExternalChange(int $viewID, object $view): ?string
+    {
+        try {
+            $states = json_decode($this->ReadAttributeString('SavedStates'), true) ?: [];
+        } catch (Throwable $e) {
+            return null;
+        }
+        $s = $states[(string) $viewID] ?? null;
+        if ($s === null || $s['hash'] === md5(IPS_GetMediaContent($viewID))) {
+            return null;
+        }
+        $msg = 'Die Ansicht wurde seit dem letzten Speichern durch dieses Modul (' . date('d.m.Y H:i', $s['time'])
+            . ') außerhalb geändert, z. B. im IPSView Designer.';
+        if ((int) ($view->ItemID ?? 0) < (int) $s['itemID']) {
+            $msg .= ' ACHTUNG: Der Elementzähler ist kleiner als damals. Vermutlich wurde ein älterer Stand zurückgeschrieben '
+                . 'und Änderungen sind verloren. Mit dem Nutzer klären und ggf. {"cmd":"backups"} / {"cmd":"restore"} nutzen.';
+        } else {
+            $msg .= ' Mit dem Nutzer klären, ob das gewollt war.';
+        }
+        return $msg;
+    }
+
+    // Hinweise, die das Speichern nicht verhindern
+    private function Hints(object $view): array
+    {
+        $hints = [];
+        foreach ($view->Pages as $p) {
+            foreach ($p->Controls ?? [] as $c) {
+                if (in_array($c->Type ?? '', ['IPSWidgetIPSViewChart', 'IPSWidgetMediaChart', 'IPSWidgetPieChart'], true)) {
+                    $oid = (string) ($c->Widget->objectid ?? '');
+                    if ($oid === '' || $oid === '0') {
+                        $hints[] = $p->PageName . '/' . ($c->ItemID ?? '?') . ': Diagramm ohne Widget.objectid (zeigt nur den Platzhalter „Chart“)';
+                    }
+                }
+            }
+        }
+        return $hints;
     }
 
     // Widget-Konfiguration: Schlüssel klein, Werte als Text
@@ -979,6 +1182,16 @@ class GrfldtKITools extends IPSModule
                 foreach (self::INLINE_KEYS as $k) {
                     if (!empty($c->$k) && !isset($pageNames[$c->$k])) {
                         $problems[] = $where . ': Zielseite "' . $c->$k . '" fehlt';
+                    }
+                }
+                if (isset($c->Widget) && is_object($c->Widget) && (string) ($c->Widget->longpressaction ?? '') === '20'
+                    && !isset($pageNames[(string) ($c->Widget->longpressparam ?? '')])) {
+                    $problems[] = $where . ': Popup-Seite "' . ($c->Widget->longpressparam ?? '') . '" für langes Drücken fehlt';
+                }
+                if (in_array($c->Type ?? '', ['IPSDetailButton', 'IPSDetailImage'], true)) {
+                    $target = (string) ($c->Text2 ?? '');
+                    if ($target !== '' && $target[0] !== '$' && !isset($pageNames[$target])) {
+                        $problems[] = $where . ': Popup-Seite "' . $target . '" fehlt';
                     }
                 }
                 if (($c->Type ?? '') === 'IPSInlinePage') {
@@ -1280,6 +1493,7 @@ class GrfldtKITools extends IPSModule
         IPS_SetName($id, $name);
         IPS_SetParent($id, IPS_GetParent($templateID));
         $this->SaveView($id, $tpl);
+        $this->RememberState($id);
         $this->SetValue('AllowCreateView', false); // Freigabe gilt nur für eine neue Ansicht
         return ['view' => $id, 'mainPage' => $main->PageName, 'cacheReset' => $this->ResetClientCache()];
     }
@@ -1343,6 +1557,7 @@ class GrfldtKITools extends IPSModule
         }
         $safety = $this->CreateBackup($viewID, $current);
         IPS_SetMediaContent($viewID, $content);
+        $this->RememberState($viewID);
         return ['restored' => $backupID, 'backupOfPrevious' => $safety, 'cacheReset' => $this->ResetClientCache()];
     }
 

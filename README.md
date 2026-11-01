@@ -11,7 +11,7 @@ Symcon-MCP-Server, lässt sich aber genauso aus eigenen PHP-Skripten nutzen.
   (Entwickler von IPSView) zur Verfügung gestellt hat. Vielen Dank dafür! Die Referenz liegt nicht bei; die für
   die Arbeit nötigen Informationen stehen in `KI-ANLEITUNG.md`.
 - **Lizenz:** MIT, siehe `LICENSE`
-- **Version:** 1.4
+- **Version:** 1.5
 
 > **Inoffizielles Modul.** Es wird weder vom Entwickler von IPSView noch von Symcon unterstützt. Es arbeitet mit
 > dem internen Dateiformat von IPSView. Getestet mit IPSView 6.5 (6.5.20) und Symcon 9.1 Rust Edition (Beta).
@@ -71,7 +71,7 @@ Tipp: Lass die KI zuerst eine Testseite oder eine Kopie deiner Ansicht bearbeite
 ### Operationen für `apply`
 
 `setView`, `addPage`, `setPage`, `renamePage`, `deletePage`, `addControls`, `updateControls`, `deleteControls`,
-`moveControls`, `transferControls`, `addImage`, `setBackground`. Die Parameter liefert `describe`.
+`moveControls`, `transferControls`, `copyControls`, `copyPage`, `addImage`, `setBackground`. Die Parameter liefert `describe`.
 
 `addPage` kennt die Seitenarten `standard` (Seite für einen Container), `popup` und `alternateMain`
 (bedingte alternative Hauptseite, z. B. für Smartphones; Bedingungen über `ConditionWidth`, `ConditionHeight`,
@@ -134,6 +134,10 @@ der Antwort aus „Ergebnis“ und der Symcon- und IPSView-Version.
 
 ## Versionen
 
+- **1.5 (Beta):** Seiten und Elemente kopieren mit Austausch von IDs und Texten (`copyPage`, `copyControls`);
+  Warnung, wenn die Ansicht seit dem letzten Speichern anderweitig geändert wurde (z. B. alter Designer-Tab);
+  Diagramme übernehmen fehlende `objectid` und werden gemeldet; Prüfung der Popup-Seiten von Detail-Knöpfen und
+  langem Drücken; KI-Anleitung zu Diagrammen, langem Drücken und Reglern ergänzt.
 - **1.4, Build 9 (Beta):** KI-Anleitung: kleine Symbole mit großer Tippfläche; mehrere Symbole für einen Schalter
   als einzelne Elemente statt mit Sammelschalter.
 - **1.4 (Beta):** Verweise `"ref:Name"` auf Bilder und Elemente innerhalb eines `apply`; Prüfung der Bilder in
