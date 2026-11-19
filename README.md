@@ -11,7 +11,7 @@ Symcon-MCP-Server, lässt sich aber genauso aus eigenen PHP-Skripten nutzen.
   (Entwickler von IPSView) zur Verfügung gestellt hat. Vielen Dank dafür! Die Referenz liegt nicht bei; die für
   die Arbeit nötigen Informationen stehen in `KI-ANLEITUNG.md`.
 - **Lizenz:** MIT, siehe `LICENSE`
-- **Version:** 1.6
+- **Version:** 1.6.1
 
 > **Inoffizielles Modul.** Es wird weder vom Entwickler von IPSView noch von Symcon unterstützt. Es arbeitet mit
 > dem internen Dateiformat von IPSView. Getestet mit IPSView 6.5 (6.5.20) und Symcon 9.1 Rust Edition (Beta).
@@ -136,6 +136,8 @@ der Antwort aus „Ergebnis“ und der Symcon- und IPSView-Version.
 
 ## Versionen
 
+- **1.6.1 (Beta):** Layout-Prüfung verlangt jetzt Texthöhe ≥ 1,7 × Schriftgröße (1,4 reichte nicht, Unterlängen
+  wurden abgeschnitten); KI-Anleitung um die Regel zur Texthöhe ergänzt.
 - **1.6 (Beta):** Layout-Hinweise nach `apply` für die geänderten Seiten (Überlappungen, Karten- und Seitenrand,
   zu niedrige Texte, Werteknöpfe mit unpassendem Wert); neue Befehle `diff` (Sicherung mit aktuellem Stand
   vergleichen) und `restorePage` (eine Seite aus einer Sicherung zurückholen); Vermerk `note` bei `apply`, der im

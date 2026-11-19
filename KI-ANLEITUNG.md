@@ -364,6 +364,10 @@ Element, z. B. Legende eines Diagramms schalten).
 - **Langes Drücken öffnet ein Popup** (z. B. kurz tippen = Licht an/aus, lang drücken = Helligkeit):
   `Widget.longpressaction` `"20"` und `Widget.longpressparam` = Name der Popup-Seite. Das Modul prüft, ob die Seite
   existiert.
+- **Texthöhe:** Text- und Wertfelder mindestens 1,7 × Schriftgröße hoch machen (je Zeile), z. B. Schrift 12 → 21,
+  Schrift 16 → 28, Schrift 26 → 45. Darunter schneidet IPSView Unterlängen wie g, p, y teilweise ab. Text mittig
+  ausrichten (`TextAlign` 4–6); Felder dürfen dafür größer als der sichtbare Text sein, sollten aber keine Knöpfe
+  überdecken (sonst fangen sie dort das Antippen ab).
 - **Regler ohne Teilstriche:** `IPSSlider` mit `Widget.tickheight` `"0"`.
 - **Fortschrittsbalken** (z. B. Akku): `IPSProgressbar` mit `Widget.minvalue`/`maxvalue`, `tickheight` `"0"`,
   `trackcoloractive`, `trackcolorinactive`, `tracksizeactive`, `tracksizeinactive`. Diese Schlüssel wirken auch hier,
@@ -436,7 +440,7 @@ Definition verwenden oder den Nutzer bitten, eine anzulegen.
 | Diagramm leer, obwohl archiviert wird | stündliche Aggregate fehlen | `AC_ReAggregateVariable` |
 | Seiten plötzlich leer, viele Änderungen weg | alter Designer-Tab hat gespeichert (`externalChange`) | Sicherung mit `restore` zurückspielen, Designer frisch öffnen |
 | Symbol fehlt, Prüfung meldet „Bild … fehlt“ | Bildkennung falsch abgeschrieben oder Bild beim Übertragen beschädigt | `"ref:Name"` verwenden; Bild kleiner machen und neu aufnehmen |
-| Unterlängen abgeschnitten („g“ in „geparkt“), zweite Zeile fehlt | Feld zu niedrig für die Schrift | Höhe mindestens 1,4 × Schriftgröße je Zeile (das Modul weist ab 1.6 darauf hin) |
+| Unterlängen abgeschnitten („g“ in „geparkt“), zweite Zeile fehlt | Feld zu niedrig für die Schrift | Höhe mindestens 1,7 × Schriftgröße je Zeile (das Modul weist ab 1.6.1 darauf hin; 1,5 reicht nicht immer) |
 | Element über `Remote.VariableVisible` bleibt unsichtbar | Bindung wirkt nicht bei jedem Typ | schreibgeschütztes `IPSToggleButton` mit zwei Farben verwenden |
 | Knopf leuchtet, obwohl er nicht aktiv ist | Werteknopf auf eine Befehlsvariable | gleiche Farben für beide Zustände |
 | Skript per MCP läuft falsch, Text erscheint als Ausgabe | Der Skripttext enthält irgendwo `<?php` (z. B. in einem eingebetteten Skript); dann setzt der Server kein `<?php` davor | den Text selbst mit `<?php` beginnen |

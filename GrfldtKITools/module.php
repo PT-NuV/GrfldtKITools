@@ -22,7 +22,7 @@
  */
 class GrfldtKITools extends IPSModule
 {
-    private const VERSION = '1.6';
+    private const VERSION = '1.6.1';
     private const IVC_MODULE_ID = '{A9AD5292-2244-15E7-6007-C7B75164AE00}';
 
     // Reguläre Elementtypen laut Datenmodell-Referenz von IPSView 6.5 (dürfen neu angelegt werden)
@@ -1042,12 +1042,12 @@ class GrfldtKITools extends IPSModule
             if (!in_array($type, self::LAYOUT_BACKGROUND_TYPES, true)) {
                 $content[] = [$c, $b];
             }
-            // Texthöhe: etwa 1,4 × Schriftgröße je Zeile, sonst werden Unterlängen abgeschnitten
+            // Texthöhe: mindestens 1,7 × Schriftgröße je Zeile, sonst schneidet IPSView Unterlängen (g, p, y) ab
             $size = (float) ($c->Font->Size ?? 0);
             $text = (string) ($c->Text1 ?? '');
             if ($size > 0 && in_array($type, ['IPSTxtLabel', 'IPSVarLabel', 'IPSFlowText'], true) && empty($c->AutoSize)) {
                 $lines = max(1, substr_count($text, "\n") + 1);
-                $need = $lines * $size * 1.4;
+                $need = $lines * $size * 1.7;
                 if (($b[3] - $b[1]) + 0.5 < $need) {
                     $hints[] = $where . $name($c) . ': Höhe ' . round($b[3] - $b[1]) . ' ist für Schrift ' . $size
                         . ($lines > 1 ? ' und ' . $lines . ' Zeilen' : '') . ' zu niedrig (mindestens ' . ceil($need) . ')';
