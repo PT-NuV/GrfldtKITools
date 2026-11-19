@@ -52,7 +52,15 @@ Wenn die Symcon-Funktion `GKT_Execute` aufrufbar ist (z. B. über einen Skript-A
    wurde; ist der Elementzähler kleiner geworden, wurde vermutlich ein alter Stand zurückgeschrieben. Dann sofort mit
    dem Nutzer klären und gegebenenfalls eine Sicherung zurückspielen.
 4. **Sicherungen nutzen.** Vor jedem Speichern legt das Modul automatisch eine Sicherung an (`backups`,
-   `restore`). Bei einem Fehler zurückspielen statt von Hand zu reparieren.
+   `restore`). Bei einem Fehler zurückspielen statt von Hand zu reparieren. Ab Version 1.6: mit `diff` sehen, was
+   sich seit einer Sicherung geändert hat, und mit `restorePage` nur eine einzelne Seite zurückholen. Bei `apply`
+   einen kurzen Vermerk in `note` mitgeben (z. B. `"Garten: Robby-Karte neu"`); er steht im Namen der Sicherung und
+   hilft später beim Finden des richtigen Stands.
+   - **Hinweise nach `apply` lesen.** Ab Version 1.6 prüft das Modul die geänderten Seiten auf Überlappungen,
+     Elemente über dem Karten- oder Seitenrand, zu niedrige Texte und unpassende Werte von Werteknöpfen und meldet das
+     unter `hints`. Diese Hinweise vor dem Speichern (beim `dryRun`) beheben oder dem Nutzer begründen.
+   - **Nicht parallel arbeiten.** Arbeiten zwei Unterhaltungen gleichzeitig an derselben Ansicht, überschreiben sie
+     sich gegenseitig. Vor größeren Umbauen mit `backups` prüfen, ob kurz vorher jemand anderes gespeichert hat.
 5. **Nur ändern, was gewünscht ist.** Lizenz-, Versions-, Passwort-, Farb- und Sondereinstellungen bestehender
    Ansichten nicht anfassen. Das Modul schützt die wichtigsten davon.
 6. **Nur echte IDs verwenden.** Jede Symcon-Objekt-ID in `ID` muss existieren (vorher mit `symcon_find` prüfen).
@@ -79,9 +87,11 @@ Wenn die Symcon-Funktion `GKT_Execute` aufrufbar ist (z. B. über einen Skript-A
 | `getControls` | `view`, `page`, `items` | Elemente vollständig |
 | `getPage` | `view`, `page` | Seite vollständig |
 | `getView` | `view`, `keys?` | Einstellungen der Ansicht (ohne Seiten, Bilder, Passwort, Lizenz) |
-| `apply` | `view`, `ops`, `dryRun?` | Änderungen anwenden (siehe Abschnitt 4) |
+| `apply` | `view`, `ops`, `dryRun?`, `note?` | Änderungen anwenden (siehe Abschnitt 4); `note` = kurzer Vermerk für die Sicherung |
 | `createView` | `name`, `template` | neue Ansicht mit den Einstellungen (Gerät, Vorgaben) einer bestehenden Ansicht und leerer Hauptseite; nur nach Freigabe durch den Nutzer (siehe Abschnitt 2) |
-| `backups` / `restore` | `view` / `view`, `backup` | Sicherungen auflisten / zurückspielen |
+| `backups` / `restore` | `view` / `view`, `backup` | Sicherungen auflisten (neueste zuerst, mit Zeit und Vermerk) / ganze Ansicht zurückspielen |
+| `diff` | `view`, `backup`, `page?` | Unterschiede zwischen einer Sicherung und dem aktuellen Stand: Seiten, Elemente hinzugefügt / entfernt / geändert (ab 1.6) |
+| `restorePage` | `view`, `backup`, `page`, `dryRun?`, `note?` | nur eine Seite aus einer Sicherung zurückholen, der Rest der Ansicht bleibt (ab 1.6) |
 | `resetCache` | – | Zwischenspeicher von IPSViewConnect leeren |
 | `icons` | – | interne Icons von IPSView: Nummer → Name |
 
@@ -243,7 +253,7 @@ verhalten sich wie die Button-Typen, zeigen aber `Image1`/`Image2`.
 | 0 | Zahl mit `Digits`, `Prefix`, `Suffix` (**Einheit aus dem Symcon-Profil erscheint hier nicht**, `Suffix` z. B. `" °C"` setzen) |
 | 1 | Zuordnungen (`Associations`) |
 | 2 | Prozent (mit `Min`/`Max`) |
-| 3 / 4 / 5 | Zeitstempel / Datum / Uhrzeit |
+| 3 / 4 / 5 | Zeitstempel / Datum / Uhrzeit; eigenes Format in `Text2`, z. B. `"dd.MM. HH:mm"` |
 | 6 | Formatierung aus Symcon übernehmen (Einheit, Nachkommastellen, Zuordnungstexte aus Profil bzw. Darstellung) – **die beste Wahl für Variablen mit Profil** |
 | 100 | Text: **nur bei `IPSFlowText`**; bei `IPSVarLabel` bleibt das Feld sonst leer (das Modul lehnt es ab) |
 
@@ -274,6 +284,10 @@ oder `"ref:Name"`). Das Modul prüft vor dem Speichern, ob diese Bilder in der A
 Über das Objekt `Remote` lassen sich Eigenschaften an Variablen binden, z. B. `VariableVisible`/`VariableHidden`
 (Element nur unter einer Bedingung zeigen), `VariableText`, `VariableForeground`, `VariableBackground`,
 `VariableReadonly`. Werte sind Symcon-Variablen-IDs (0 = keine Bindung).
+
+Achtung: `VariableVisible` an einem `IPSShapeRect` hat im Test nicht gewirkt (das Element blieb unsichtbar). Für
+Anzeigen, die sich mit einem Zustand ändern sollen, besser ein schreibgeschütztes Schalt-Element verwenden (siehe
+„Zustandsanzeige“ unter Bewährte Muster).
 
 ### `Widget`
 
@@ -351,6 +365,28 @@ Element, z. B. Legende eines Diagramms schalten).
   `Widget.longpressaction` `"20"` und `Widget.longpressparam` = Name der Popup-Seite. Das Modul prüft, ob die Seite
   existiert.
 - **Regler ohne Teilstriche:** `IPSSlider` mit `Widget.tickheight` `"0"`.
+- **Fortschrittsbalken** (z. B. Akku): `IPSProgressbar` mit `Widget.minvalue`/`maxvalue`, `tickheight` `"0"`,
+  `trackcoloractive`, `trackcolorinactive`, `tracksizeactive`, `tracksizeinactive`. Diese Schlüssel wirken auch hier,
+  obwohl die Referenz sie nur beim Schalter nennt.
+- **Zustandsanzeige** (z. B. Signalbalken wie am Handy, „welche Röhre heizt“): je Balken ein `IPSToggleButton` mit
+  `Readonly: true`, ohne Text, `BackColor1` = Farbe „an“, `BackColor2` = Farbe „aus“, gebunden an eine boolesche
+  Hilfsvariable. Die Hilfsvariablen setzt ein kleines Skript mit Ereignissen auf die Quellwerte (z. B. dBm → 0–4
+  Balken).
+- **Schaltknopf mit Symbol vor dem Text** (Licht, Steckdose in einer Liste): `IPSToggleButton` mit `Image1`
+  (Symbol leuchtend), `Image2` (Symbol grau) und `TextAlign` 105 (Bild vor Text, links). Für „an“ die Fläche leicht
+  tönen und den Text hell, für „aus“ grau. Ein Schalt-Element hat nur **eine** Randfarbe für beide Zustände; den
+  Zustand also über Fläche, Text und Symbol zeigen. Namen kurz halten: Wenn Überschrift und Symbol schon „Licht“
+  oder „Steckdose“ sagen, gehört das nicht noch einmal in den Text.
+- **Befehlsvariablen** (der Wert bleibt nicht stehen, z. B. „Steuerung“ eines Mähroboters): `IPSValueButton` mit
+  gleichen Farben für beide Zustände, sonst leuchtet ein Knopf, der gar nicht aktiv ist. Werte aus der Auswahl
+  der Variable nehmen (Profil-Zuordnungen bzw. Optionen der Darstellung); das Modul warnt ab 1.6, wenn ein Wert
+  nicht passt. Textvariablen ohne Auswahl eignen sich nicht für Werteknöpfe.
+- **Einheiten umrechnen** (z. B. Sekunden → „hh:mm“, dBm → Balken): nicht in IPSView, sondern mit einer
+  Hilfsvariable, die ein Ereignis bei jeder Änderung des Quellwerts setzt.
+- **Bedienung, die mehrere Geräte zusammenfasst** (z. B. Heizstufen über zwei Kanäle, Raffstore „beschatten“):
+  Hilfsvariable mit eigenem Profil und Aktionsskript (`IPS_SetVariableCustomAction`). Im Skript eine Semaphore
+  gegen doppeltes Tippen; die Hilfsvariable über Ereignisse auf die Geräte immer dem echten Zustand folgen lassen
+  (auch wenn jemand einen Taster benutzt).
 - **Popup aus einer Karte:** Karte aus Fläche und Texten, darüber ein durchsichtiger `IPSDetailButton` auf Ebene 4
   in Kartengröße mit `Text2` = Popup-Seite. Das Popup schließt beim Tippen außerhalb.
 - **Spalte mit Gerätedaten:** platzsparend untereinander, Gerätename als Überschrift, darunter je Zeile Bezeichnung
@@ -400,6 +436,12 @@ Definition verwenden oder den Nutzer bitten, eine anzulegen.
 | Diagramm leer, obwohl archiviert wird | stündliche Aggregate fehlen | `AC_ReAggregateVariable` |
 | Seiten plötzlich leer, viele Änderungen weg | alter Designer-Tab hat gespeichert (`externalChange`) | Sicherung mit `restore` zurückspielen, Designer frisch öffnen |
 | Symbol fehlt, Prüfung meldet „Bild … fehlt“ | Bildkennung falsch abgeschrieben oder Bild beim Übertragen beschädigt | `"ref:Name"` verwenden; Bild kleiner machen und neu aufnehmen |
+| Unterlängen abgeschnitten („g“ in „geparkt“), zweite Zeile fehlt | Feld zu niedrig für die Schrift | Höhe mindestens 1,4 × Schriftgröße je Zeile (das Modul weist ab 1.6 darauf hin) |
+| Element über `Remote.VariableVisible` bleibt unsichtbar | Bindung wirkt nicht bei jedem Typ | schreibgeschütztes `IPSToggleButton` mit zwei Farben verwenden |
+| Knopf leuchtet, obwohl er nicht aktiv ist | Werteknopf auf eine Befehlsvariable | gleiche Farben für beide Zustände |
+| Skript per MCP läuft falsch, Text erscheint als Ausgabe | Der Skripttext enthält irgendwo `<?php` (z. B. in einem eingebetteten Skript); dann setzt der Server kein `<?php` davor | den Text selbst mit `<?php` beginnen |
+| Ereignis ruft das falsche Skript bzw. doppelt auf | `IPS_SetEventScript` bei einem Ereignis unter einem Skript | Ereignis einfach unter das Skript legen: es ruft dann dieses Skript mit `SENDER` „Variable“ und `VARIABLE` auf |
+| Ältere Sicherungen fehlen, sehr alte sind noch da (bis 1.5) | Aufräumen sortierte nach Objekt-ID statt nach Datum | ab 1.6 behoben; zusätzlich je Tag eine Sicherung (`BackupKeepDays`) |
 
 ## 12. Grenzen
 

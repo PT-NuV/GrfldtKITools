@@ -22,7 +22,7 @@
  */
 class GrfldtKITools extends IPSModule
 {
-    private const VERSION = '1.5';
+    private const VERSION = '1.6';
     private const IVC_MODULE_ID = '{A9AD5292-2244-15E7-6007-C7B75164AE00}';
 
     // Reguläre Elementtypen laut Datenmodell-Referenz von IPSView 6.5 (dürfen neu angelegt werden)
@@ -169,6 +169,8 @@ class GrfldtKITools extends IPSModule
     {
         parent::Create();
         $this->RegisterPropertyInteger('BackupKeep', 20);
+        // Zusätzlich je Tag die letzte Sicherung so viele Tage aufheben (0 = aus)
+        $this->RegisterPropertyInteger('BackupKeepDays', 14);
         // Stand jeder Ansicht nach dem letzten Speichern durch das Modul (erkennt Überschreiben durch den Designer)
         $this->RegisterAttributeString('SavedStates', '{}');
         $this->RegisterVariableString('Command', 'Befehl', '', 1);
@@ -244,13 +246,18 @@ class GrfldtKITools extends IPSModule
             case 'getView':
                 return $this->GetViewCmd($this->RequireInt($cmd, 'view'), $cmd['keys'] ?? []);
             case 'apply':
-                return $this->Apply($this->RequireInt($cmd, 'view'), $cmd['ops'] ?? [], !empty($cmd['dryRun']), !empty($cmd['force']));
+                return $this->Apply($this->RequireInt($cmd, 'view'), $cmd['ops'] ?? [], !empty($cmd['dryRun']), !empty($cmd['force']), (string) ($cmd['note'] ?? ''));
             case 'createView':
                 return $this->CreateViewCmd($this->RequireString($cmd, 'name'), $this->RequireInt($cmd, 'template'));
             case 'backups':
                 return $this->ListBackups($this->RequireInt($cmd, 'view'));
             case 'restore':
                 return $this->Restore($this->RequireInt($cmd, 'view'), $this->RequireInt($cmd, 'backup'));
+            case 'diff':
+                return $this->DiffCmd($this->RequireInt($cmd, 'view'), $this->RequireInt($cmd, 'backup'), $cmd['page'] ?? null);
+            case 'restorePage':
+                return $this->RestorePage($this->RequireInt($cmd, 'view'), $this->RequireInt($cmd, 'backup'), $this->RequireString($cmd, 'page'),
+                    !empty($cmd['dryRun']), (string) ($cmd['note'] ?? ''));
             case 'resetCache':
                 return $this->ResetClientCache();
             case 'icons':
@@ -267,8 +274,11 @@ class GrfldtKITools extends IPSModule
                 'ping' => '{}', 'describe' => '{}', 'listViews' => '{}',
                 'outline' => '{view, page?}', 'getControls' => '{view, page, items:[ItemID]}',
                 'getPage' => '{view, page}', 'getView' => '{view, keys?:[]}',
-                'apply' => '{view, ops:[...], dryRun?, force?}', 'createView' => '{name, template} (nur nach Freigabe durch den Nutzer)',
+                'apply' => '{view, ops:[...], dryRun?, force?, note?} (note = kurzer Vermerk im Namen der Sicherung)',
+                'createView' => '{name, template} (nur nach Freigabe durch den Nutzer)',
                 'backups' => '{view}', 'restore' => '{view, backup}', 'resetCache' => '{}',
+                'diff' => '{view, backup, page?} (Unterschiede zwischen Sicherung und aktuellem Stand)',
+                'restorePage' => '{view, backup, page, dryRun?, note?} (nur eine Seite aus einer Sicherung zurückholen)',
                 'icons' => '{} (interne Icons: Nummer => Name)'
             ],
             'ops' => [
@@ -299,7 +309,9 @@ class GrfldtKITools extends IPSModule
                 'Widget: Schlüssel klein, Werte als Text; das Modul wandelt das automatisch um',
                 'TextAlign: 1–9 = oben/mitte/unten × links/mittig/rechts; bei IPSInlinePage Scrollrichtung 0/1/2',
                 'Step bei IPSVarLabel = Darstellungsart: 0 Wert, 1 Zuordnungen, 2 Prozent, 3–5 Zeitstempel, 6 Symcon (100 Text nur bei IPSFlowText); bei 0 Digits für Nachkommastellen setzen',
-                'ItemLayer: 1 Hintergrund, 2 Mitte, 3 Vordergrund, 4 Overlay'
+                'ItemLayer: 1 Hintergrund, 2 Mitte, 3 Vordergrund, 4 Overlay',
+                'Nach apply stehen unter hints Layout-Hinweise zu den geänderten Seiten (Überlappungen, Kartenrand, zu niedrige Texte, Werteknöpfe)',
+                'Zustandsanzeigen (z. B. Signalbalken): IPSToggleButton mit Readonly true, BackColor1 = an, BackColor2 = aus'
             ]
         ];
     }
@@ -412,7 +424,7 @@ class GrfldtKITools extends IPSModule
     // ---------------------------------------------------------------------------------------------
     // Ändern
 
-    private function Apply(int $viewID, array $ops, bool $dryRun, bool $force): array
+    private function Apply(int $viewID, array $ops, bool $dryRun, bool $force, string $note = ''): array
     {
         if (!$ops) {
             throw new Exception('Keine Operationen angegeben (ops).');
@@ -436,7 +448,15 @@ class GrfldtKITools extends IPSModule
             throw new Exception('Prüfung fehlgeschlagen, nichts gespeichert: ' . implode(' | ', array_slice($problems, 0, 25)));
         }
         $result = ['refs' => $refs, 'log' => $log, 'warnings' => $problems, 'saved' => false];
-        $hints = $this->Hints($view);
+        $touched = [];
+        foreach ($ops as $op) {
+            foreach (['page', 'to', 'name'] as $k) {
+                if (isset($op[$k]) && is_string($op[$k])) {
+                    $touched[$op[$k]] = true;
+                }
+            }
+        }
+        $hints = $this->Hints($view, array_keys($touched));
         if ($hints) {
             $result['hints'] = $hints;
         }
@@ -446,7 +466,7 @@ class GrfldtKITools extends IPSModule
         if ($dryRun) {
             return $result;
         }
-        $result['backup'] = $this->CreateBackup($viewID, $original);
+        $result['backup'] = $this->CreateBackup($viewID, $original, $note);
         $this->SaveView($viewID, $view);
         $this->RememberState($viewID);
         $result['saved'] = true;
@@ -956,7 +976,7 @@ class GrfldtKITools extends IPSModule
     }
 
     // Hinweise, die das Speichern nicht verhindern
-    private function Hints(object $view): array
+    private function Hints(object $view, array $touchedPages = []): array
     {
         $hints = [];
         foreach ($view->Pages as $p) {
@@ -968,8 +988,169 @@ class GrfldtKITools extends IPSModule
                     }
                 }
             }
+            if (in_array($p->PageName, $touchedPages, true)) {
+                $hints = array_merge($hints, $this->LayoutHints($view, $p));
+            }
         }
         return $hints;
+    }
+
+    // Flächen, die andere Elemente tragen oder überdecken dürfen (keine Überlappungsprüfung)
+    private const LAYOUT_BACKGROUND_TYPES = [
+        'IPSShapeRect', 'IPSShapeCircle', 'IPSShapeLineH', 'IPSShapeLineV', 'IPSShadow', 'IPSImage', 'IPSDetailButton',
+        'IPSDetailImage', 'IPSInlinePage', 'IPSHTMLBox', 'IPSWidgetIPSViewChart', 'IPSWidgetMediaChart', 'IPSWidgetPieChart'
+    ];
+
+    // Layout-Prüfung einer Seite: Überlappungen, Kartenrand, Seitenrand, Texthöhe, Werteknöpfe
+    private function LayoutHints(object $view, object $p): array
+    {
+        $hints = [];
+        $max = 40; // nicht mehr Hinweise je Seite
+        $num = function ($v) {
+            return is_numeric($v) ? (float) $v : null;
+        };
+        $box = function ($c) use ($num) {
+            $x = $num($c->LocationX ?? 0);
+            $y = $num($c->LocationY ?? 0);
+            $w = $num($c->Width ?? 0);
+            $h = $num($c->Height ?? 0);
+            return ($x === null || $y === null || $w === null || $h === null) ? null : [$x, $y, $x + $w, $y + $h];
+        };
+        $name = function ($c) {
+            $t = trim(str_replace("\n", ' ', (string) ($c->Text1 ?? '')));
+            return ($c->ItemID ?? '?') . ' ' . ($c->Type ?? '?') . ($t !== '' ? ' „' . mb_substr($t, 0, 24) . '“' : '')
+                . (!empty($c->ID) ? ' #' . $c->ID : '');
+        };
+        $where = $p->PageName . '/';
+        $kind = $this->PageKind($p);
+        $pw = (float) ($kind === 'main' ? ($view->Width ?? 0) : ($p->PopupWidth ?? 0));
+        $ph = (float) ($kind === 'main' ? ($view->Height ?? 0) : ($p->PopupHeight ?? 0));
+        $content = [];
+        $cards = [];
+        foreach ($p->Controls ?? [] as $c) {
+            $b = $box($c);
+            if ($b === null) {
+                continue;
+            }
+            $type = $c->Type ?? '';
+            if ($pw > 0 && $ph > 0 && ($b[0] < -1 || $b[1] < -1 || $b[2] > $pw + 1 || $b[3] > $ph + 1)) {
+                $hints[] = $where . $name($c) . ': ragt über den Seitenrand (' . $pw . ' × ' . $ph . ')';
+            }
+            if ($type === 'IPSShapeRect' && (int) ($c->ItemLayer ?? 2) === 1 && ($b[2] - $b[0]) >= 60 && ($b[3] - $b[1]) >= 60) {
+                $cards[] = [$c, $b];
+            }
+            if (!in_array($type, self::LAYOUT_BACKGROUND_TYPES, true)) {
+                $content[] = [$c, $b];
+            }
+            // Texthöhe: etwa 1,4 × Schriftgröße je Zeile, sonst werden Unterlängen abgeschnitten
+            $size = (float) ($c->Font->Size ?? 0);
+            $text = (string) ($c->Text1 ?? '');
+            if ($size > 0 && in_array($type, ['IPSTxtLabel', 'IPSVarLabel', 'IPSFlowText'], true) && empty($c->AutoSize)) {
+                $lines = max(1, substr_count($text, "\n") + 1);
+                $need = $lines * $size * 1.4;
+                if (($b[3] - $b[1]) + 0.5 < $need) {
+                    $hints[] = $where . $name($c) . ': Höhe ' . round($b[3] - $b[1]) . ' ist für Schrift ' . $size
+                        . ($lines > 1 ? ' und ' . $lines . ' Zeilen' : '') . ' zu niedrig (mindestens ' . ceil($need) . ')';
+                }
+            }
+            $hint = $this->ValueButtonHint($c);
+            if ($hint !== null) {
+                $hints[] = $where . $name($c) . ': ' . $hint;
+            }
+        }
+        // Überlappungen auf derselben Ebene (gleiche Variable darf sich überlappen, z. B. mehrere Spots)
+        $n = count($content);
+        for ($i = 0; $i < $n; $i++) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                [$a, $ab] = $content[$i];
+                [$b, $bb] = $content[$j];
+                if ((int) ($a->ItemLayer ?? 2) !== (int) ($b->ItemLayer ?? 2)) {
+                    continue;
+                }
+                if (!empty($a->ID) && (int) ($a->ID ?? 0) === (int) ($b->ID ?? 0) && $a->Type === $b->Type) {
+                    continue;
+                }
+                $ox = min($ab[2], $bb[2]) - max($ab[0], $bb[0]);
+                $oy = min($ab[3], $bb[3]) - max($ab[1], $bb[1]);
+                if ($ox > 4 && $oy > 4) {
+                    $small = min(($ab[2] - $ab[0]) * ($ab[3] - $ab[1]), ($bb[2] - $bb[0]) * ($bb[3] - $bb[1]));
+                    if ($small > 0 && $ox * $oy / $small > 0.15) {
+                        $hints[] = $where . $name($a) . ' überlappt ' . $name($b);
+                    }
+                }
+            }
+        }
+        // Elemente, die teilweise auf einer Karte liegen (über den Kartenrand ragen)
+        foreach ($content as [$c, $cb]) {
+            foreach ($cards as [$card, $kb]) {
+                $ox = min($cb[2], $kb[2]) - max($cb[0], $kb[0]);
+                $oy = min($cb[3], $kb[3]) - max($cb[1], $kb[1]);
+                $inside = $cb[0] >= $kb[0] - 1 && $cb[1] >= $kb[1] - 1 && $cb[2] <= $kb[2] + 1 && $cb[3] <= $kb[3] + 1;
+                if ($ox > 0 && $oy > 0 && !$inside) {
+                    $hints[] = $where . $name($c) . ': ragt über den Rand der Karte ' . ($card->ItemID ?? '?');
+                }
+            }
+        }
+        if (count($hints) > $max) {
+            $rest = count($hints) - $max;
+            $hints = array_slice($hints, 0, $max);
+            $hints[] = $where . '… und ' . $rest . ' weitere Hinweise';
+        }
+        return $hints;
+    }
+
+    // Passt der Wert eines Werteknopfs zur Variable (Typ, Zuordnungen bzw. Auswahl der Darstellung)?
+    private function ValueButtonHint(object $c): ?string
+    {
+        if (!in_array($c->Type ?? '', ['IPSValueButton', 'IPSValueImage'], true) || !property_exists($c, 'ValueSelected')) {
+            return null;
+        }
+        $id = (int) ($c->ID ?? 0);
+        if ($id <= 0 || !IPS_VariableExists($id)) {
+            return null;
+        }
+        $val = $c->ValueSelected;
+        $v = IPS_GetVariable($id);
+        $type = $v['VariableType'];
+        if ($type === 3 && !is_string($val)) {
+            return 'Wert ' . json_encode($val) . ' auf eine Textvariable – passt das? Textvariablen ohne Auswahl eignen sich nicht für Werteknöpfe.';
+        }
+        if (($type === 1 || $type === 2) && !is_numeric($val)) {
+            return 'Wert ' . json_encode($val) . ' ist keine Zahl, die Variable ist aber eine Zahl';
+        }
+        $values = [];
+        $profile = $v['VariableCustomProfile'] ?: $v['VariableProfile'];
+        if ($profile !== '' && IPS_VariableProfileExists($profile)) {
+            $pr = IPS_GetVariableProfile($profile);
+            if (($type === 1 || $type === 2) && $pr['MinValue'] < $pr['MaxValue']) {
+                // Profil mit Wertebereich (z. B. 0–100 %): jeder Wert im Bereich ist gültig
+                if ((float) $val < $pr['MinValue'] || (float) $val > $pr['MaxValue']) {
+                    return 'Wert ' . $val . ' liegt außerhalb des Profils ' . $profile . ' (' . $pr['MinValue'] . '–' . $pr['MaxValue'] . ')';
+                }
+                return null;
+            }
+            foreach ($pr['Associations'] as $a) {
+                $values[] = $a['Value'];
+            }
+        } elseif (function_exists('IPS_GetVariablePresentation')) {
+            $pres = @IPS_GetVariablePresentation($id);
+            if (is_array($pres) && isset($pres['OPTIONS'])) {
+                foreach ((array) json_decode((string) $pres['OPTIONS'], true) as $o) {
+                    if (isset($o['Value'])) {
+                        $values[] = $o['Value'];
+                    }
+                }
+            }
+        }
+        if ($values) {
+            foreach ($values as $x) {
+                if ((string) $x === (string) $val || (is_numeric($x) && is_numeric($val) && (float) $x == (float) $val)) {
+                    return null;
+                }
+            }
+            return 'Wert ' . json_encode($val) . ' kommt in der Auswahl der Variable nicht vor (' . implode(', ', array_slice(array_map('strval', $values), 0, 12)) . ')';
+        }
+        return null;
     }
 
     // Widget-Konfiguration: Schlüssel klein, Werte als Text
@@ -1498,67 +1679,301 @@ class GrfldtKITools extends IPSModule
         return ['view' => $id, 'mainPage' => $main->PageName, 'cacheReset' => $this->ResetClientCache()];
     }
 
-    private function CreateBackup(int $viewID, string $content): int
+    private function CreateBackup(int $viewID, string $content, string $note = ''): int
     {
         $id = IPS_CreateMedia(5);
         IPS_SetParent($id, $this->InstanceID);
         IPS_SetMediaFile($id, 'media/ivt_backup_' . $viewID . '_' . date('Ymd_His') . '_' . $id . '.ipsView.bak', false);
-        IPS_SetName($id, 'Sicherung ' . IPS_GetName($viewID) . ' (#' . $viewID . ') ' . date('d.m.Y H:i:s'));
+        $note = trim(preg_replace('/\s+/', ' ', $note));
+        IPS_SetName($id, 'Sicherung ' . IPS_GetName($viewID) . ' (#' . $viewID . ') ' . date('d.m.Y H:i:s')
+            . ($note !== '' ? ' – vor: ' . mb_substr($note, 0, 80) : ''));
         IPS_SetIdent($id, 'Backup_' . $viewID . '_' . $id);
-        IPS_SetInfo($id, (string) $viewID);
+        // Info: Ansicht, Zeitpunkt und Vermerk (Zeitpunkt für die Sortierung, IDs vergibt Symcon zufällig)
+        IPS_SetInfo($id, json_encode(['view' => $viewID, 'time' => time(), 'note' => $note], JSON_UNESCAPED_UNICODE));
         IPS_SetHidden($id, true);
         IPS_SetMediaContent($id, $content);
         $this->PruneBackups($viewID);
         return $id;
     }
 
+    // Zeitpunkt einer Sicherung (ab 1.6 in der Info, ältere aus dem Namen bzw. der letzten Änderung)
+    private function BackupTime(int $id): int
+    {
+        $info = json_decode(IPS_GetObject($id)['ObjectInfo'], true);
+        if (is_array($info) && isset($info['time'])) {
+            return (int) $info['time'];
+        }
+        if (preg_match('/(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})/', IPS_GetName($id), $m)) {
+            return (int) mktime((int) $m[4], (int) $m[5], (int) $m[6], (int) $m[2], (int) $m[1], (int) $m[3]);
+        }
+        return (int) IPS_GetMedia($id)['MediaUpdated'];
+    }
+
+    // Sicherungen einer Ansicht, älteste zuerst
     private function BackupIDs(int $viewID): array
     {
         $ids = [];
         foreach (IPS_GetChildrenIDs($this->InstanceID) as $child) {
             $o = IPS_GetObject($child);
             if ($o['ObjectType'] === 5 && strpos($o['ObjectIdent'], 'Backup_' . $viewID . '_') === 0) {
-                $ids[] = $child;
+                $ids[$child] = $this->BackupTime($child);
             }
         }
-        sort($ids);
-        return $ids;
+        asort($ids);
+        return array_keys($ids);
     }
 
+    // Behalten: die neuesten BackupKeep Sicherungen und zusätzlich je Tag die letzte der letzten BackupKeepDays Tage
     private function PruneBackups(int $viewID): void
     {
         $ids = $this->BackupIDs($viewID);
-        $keep = max(1, $this->ReadPropertyInteger('BackupKeep'));
-        while (count($ids) > $keep) {
-            IPS_DeleteMedia(array_shift($ids), true);
+        $keepN = max(1, $this->ReadPropertyInteger('BackupKeep'));
+        $days = max(0, $this->ReadPropertyInteger('BackupKeepDays'));
+        $keep = array_slice($ids, -$keepN);
+        if ($days > 0) {
+            $limit = strtotime('today') - ($days - 1) * 86400;
+            $perDay = [];
+            foreach ($ids as $id) {
+                $t = $this->BackupTime($id);
+                if ($t >= $limit) {
+                    $perDay[date('Ymd', $t)] = $id; // letzte des Tages gewinnt (Liste ist aufsteigend)
+                }
+            }
+            $keep = array_merge($keep, array_values($perDay));
+        }
+        foreach ($ids as $id) {
+            if (!in_array($id, $keep, true)) {
+                IPS_DeleteMedia($id, true);
+            }
         }
     }
 
     private function ListBackups(int $viewID): array
     {
         $out = [];
-        foreach ($this->BackupIDs($viewID) as $id) {
-            $out[] = ['backup' => $id, 'name' => IPS_GetName($id), 'size' => IPS_GetMedia($id)['MediaSize']];
+        foreach (array_reverse($this->BackupIDs($viewID)) as $id) {
+            $info = json_decode(IPS_GetObject($id)['ObjectInfo'], true);
+            $out[] = ['backup' => $id, 'time' => date('c', $this->BackupTime($id)), 'name' => IPS_GetName($id),
+                'note' => is_array($info) ? ($info['note'] ?? '') : '', 'size' => IPS_GetMedia($id)['MediaSize']];
         }
-        return $out;
+        return $out; // neueste zuerst
     }
 
-    private function Restore(int $viewID, int $backupID): array
+    private function LoadBackup(int $viewID, int $backupID): object
     {
         if (!in_array($backupID, $this->BackupIDs($viewID), true)) {
             throw new Exception('Sicherung #' . $backupID . ' gehört nicht zu Ansicht #' . $viewID . '.');
         }
+        $view = json_decode(base64_decode(IPS_GetMediaContent($backupID)));
+        if (!is_object($view) || !isset($view->Pages)) {
+            throw new Exception('Sicherung #' . $backupID . ' ist beschädigt.');
+        }
+        return $view;
+    }
+
+    private function Restore(int $viewID, int $backupID): array
+    {
+        $this->LoadBackup($viewID, $backupID);
         $this->LoadView($viewID);
         $current = IPS_GetMediaContent($viewID);
         $content = IPS_GetMediaContent($backupID);
-        $check = json_decode(base64_decode($content));
-        if (!is_object($check) || !isset($check->Pages)) {
-            throw new Exception('Sicherung #' . $backupID . ' ist beschädigt.');
-        }
-        $safety = $this->CreateBackup($viewID, $current);
+        $safety = $this->CreateBackup($viewID, $current, 'Zurückspielen von #' . $backupID);
         IPS_SetMediaContent($viewID, $content);
         $this->RememberState($viewID);
         return ['restored' => $backupID, 'backupOfPrevious' => $safety, 'cacheReset' => $this->ResetClientCache()];
+    }
+
+    // Unterschiede zwischen einer Sicherung und dem aktuellen Stand (Seiten und Elemente)
+    private function DiffCmd(int $viewID, int $backupID, $pageName): array
+    {
+        $old = $this->LoadBackup($viewID, $backupID);
+        $new = $this->LoadView($viewID);
+        $pagesOf = function ($view) use ($pageName) {
+            $out = [];
+            foreach ($view->Pages as $p) {
+                if ($pageName === null || $p->PageName === $pageName) {
+                    $out[$p->PageName] = $p;
+                }
+            }
+            return $out;
+        };
+        $po = $pagesOf($old);
+        $pn = $pagesOf($new);
+        $short = function ($c) {
+            $t = trim(str_replace("\n", ' ', (string) ($c->Text1 ?? '')));
+            return ($c->Type ?? '?') . (!empty($c->ID) ? ' #' . $c->ID : '') . ($t !== '' ? ' „' . mb_substr($t, 0, 30) . '“' : '')
+                . ' @' . round((float) ($c->LocationX ?? 0)) . ',' . round((float) ($c->LocationY ?? 0))
+                . ' ' . round((float) ($c->Width ?? 0)) . '×' . round((float) ($c->Height ?? 0));
+        };
+        $skip = ['ItemIdx', 'ItemName'];
+        $out = ['backup' => $backupID, 'backupTime' => date('c', $this->BackupTime($backupID)), 'pagesAdded' => [], 'pagesRemoved' => [], 'pages' => []];
+        foreach ($pn as $name => $p) {
+            if (!isset($po[$name])) {
+                $out['pagesAdded'][] = $name;
+            }
+        }
+        foreach ($po as $name => $p) {
+            if (!isset($pn[$name])) {
+                $out['pagesRemoved'][] = $name;
+                continue;
+            }
+            $a = [];
+            $b = [];
+            foreach ($p->Controls ?? [] as $c) {
+                $a[$c->ItemID ?? spl_object_id($c)] = $c;
+            }
+            foreach ($pn[$name]->Controls ?? [] as $c) {
+                $b[$c->ItemID ?? spl_object_id($c)] = $c;
+            }
+            $d = ['added' => [], 'removed' => [], 'changed' => []];
+            foreach ($b as $iid => $c) {
+                if (!isset($a[$iid])) {
+                    $d['added'][] = $iid . ' ' . $short($c);
+                    continue;
+                }
+                $ch = [];
+                $keys = array_unique(array_merge(array_keys((array) $a[$iid]), array_keys((array) $c)));
+                foreach ($keys as $k) {
+                    if (in_array($k, $skip, true)) {
+                        continue;
+                    }
+                    $x = json_encode($this->SortedValue($a[$iid]->$k ?? null), JSON_UNESCAPED_UNICODE);
+                    $y = json_encode($this->SortedValue($c->$k ?? null), JSON_UNESCAPED_UNICODE);
+                    if ($x !== $y) {
+                        $ch[] = $k . ': ' . mb_substr($x, 0, 60) . ' → ' . mb_substr($y, 0, 60);
+                    }
+                }
+                if ($ch) {
+                    $d['changed'][] = $iid . ' ' . $short($c) . ' | ' . implode('; ', $ch);
+                }
+            }
+            foreach ($a as $iid => $c) {
+                if (!isset($b[$iid])) {
+                    $d['removed'][] = $iid . ' ' . $short($c);
+                }
+            }
+            $pageChanged = [];
+            foreach ((array) $p as $k => $v) {
+                if ($k !== 'Controls' && json_encode($this->SortedValue($v)) !== json_encode($this->SortedValue($pn[$name]->$k ?? null))) {
+                    $pageChanged[] = $k;
+                }
+            }
+            if ($d['added'] || $d['removed'] || $d['changed'] || $pageChanged) {
+                if ($pageChanged) {
+                    $d['pageProperties'] = $pageChanged;
+                }
+                $out['pages'][$name] = $d;
+            }
+        }
+        return $out;
+    }
+
+    // Wert mit sortierten Schlüsseln (für Vergleiche unabhängig von der Reihenfolge der Felder)
+    private function SortedValue($v)
+    {
+        $f = function ($x) {
+            return $this->SortedValue($x);
+        };
+        if (is_object($v)) {
+            $v = (array) $v;
+            ksort($v);
+            return array_map($f, $v);
+        }
+        if (is_array($v)) {
+            return array_map($f, $v);
+        }
+        return $v;
+    }
+
+    // Eine Seite aus einer Sicherung zurückholen; der Rest der Ansicht bleibt, wie er ist
+    private function RestorePage(int $viewID, int $backupID, string $pageName, bool $dryRun, string $note): array
+    {
+        $old = $this->LoadBackup($viewID, $backupID);
+        $original = IPS_GetMediaContent($viewID);
+        $view = $this->LoadView($viewID);
+        $external = $this->ExternalChange($viewID, $view);
+        $src = $this->FindPage($old, $pageName);
+        $page = json_decode(json_encode($src)); // tiefe Kopie
+        // ItemIDs, die inzwischen auf einer anderen Seite stehen, neu vergeben
+        $used = [];
+        foreach ($view->Pages as $p) {
+            if ($p->PageName === $pageName) {
+                continue;
+            }
+            foreach ($p->Controls ?? [] as $c) {
+                $used[(int) ($c->ItemID ?? 0)] = true;
+            }
+        }
+        $renumbered = 0;
+        foreach ($page->Controls ?? [] as $c) {
+            if (isset($used[(int) ($c->ItemID ?? 0)])) {
+                $c->ItemID = (int) $view->ItemID;
+                $view->ItemID = (int) $view->ItemID + 1;
+                $renumbered++;
+            } elseif ((int) ($c->ItemID ?? 0) >= (int) ($view->ItemID ?? 0)) {
+                $view->ItemID = (int) $c->ItemID + 1;
+            }
+        }
+        // Bilder der Seite mitnehmen, die in der aktuellen Ansicht fehlen
+        $have = [];
+        foreach ($view->Images ?? [] as $img) {
+            $have[(int) $img->ImageHash] = true;
+        }
+        $needed = [];
+        foreach ([$page->BackgroundImage ?? 0, $page->PageImage ?? 0] as $h) {
+            $needed[(int) $h] = true;
+        }
+        foreach ($page->Controls ?? [] as $c) {
+            foreach (['Image1', 'Image2'] as $k) {
+                $needed[(int) ($c->$k ?? 0)] = true;
+            }
+            foreach ($c->Associations ?? [] as $a) {
+                $needed[(int) ($a->Image ?? 0)] = true;
+            }
+        }
+        $images = 0;
+        foreach ($old->Images ?? [] as $img) {
+            $h = (int) $img->ImageHash;
+            if (isset($needed[$h]) && !isset($have[$h])) {
+                $view->Images[] = $img;
+                $have[$h] = true;
+                $images++;
+            }
+        }
+        $replaced = false;
+        foreach ($view->Pages as $i => $p) {
+            if ($p->PageName === $pageName) {
+                $view->Pages[$i] = $page;
+                $replaced = true;
+            }
+        }
+        if (!$replaced) {
+            $view->Pages[] = $page;
+        }
+        $this->Reindex($view);
+        $this->UpdateUsedIDs($view);
+        $problems = $this->Validate($view);
+        if ($problems) {
+            throw new Exception('Prüfung fehlgeschlagen, nichts gespeichert: ' . implode(' | ', array_slice($problems, 0, 25)));
+        }
+        $result = ['page' => $pageName, 'from' => $backupID, 'replaced' => $replaced, 'renumbered' => $renumbered,
+            'imagesAdded' => $images, 'saved' => false];
+        $hints = $this->Hints($view, [$pageName]);
+        if ($hints) {
+            $result['hints'] = $hints;
+        }
+        if ($external !== null) {
+            $result['externalChange'] = $external;
+        }
+        if ($dryRun) {
+            return $result;
+        }
+        $result['backup'] = $this->CreateBackup($viewID, $original, $note !== '' ? $note : 'Seite „' . $pageName . '“ aus #' . $backupID);
+        $this->SaveView($viewID, $view);
+        $this->RememberState($viewID);
+        $result['saved'] = true;
+        $result['cacheReset'] = $this->ResetClientCache();
+        return $result;
     }
 
     private function ResetClientCache(): int

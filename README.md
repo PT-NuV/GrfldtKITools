@@ -11,7 +11,7 @@ Symcon-MCP-Server, lässt sich aber genauso aus eigenen PHP-Skripten nutzen.
   (Entwickler von IPSView) zur Verfügung gestellt hat. Vielen Dank dafür! Die Referenz liegt nicht bei; die für
   die Arbeit nötigen Informationen stehen in `KI-ANLEITUNG.md`.
 - **Lizenz:** MIT, siehe `LICENSE`
-- **Version:** 1.5
+- **Version:** 1.6
 
 > **Inoffizielles Modul.** Es wird weder vom Entwickler von IPSView noch von Symcon unterstützt. Es arbeitet mit
 > dem internen Dateiformat von IPSView. Getestet mit IPSView 6.5 (6.5.20) und Symcon 9.1 Rust Edition (Beta).
@@ -65,6 +65,8 @@ Tipp: Lass die KI zuerst eine Testseite oder eine Kopie deiner Ansicht bearbeite
 | `apply {view, ops, dryRun?}` | Änderungen anwenden, siehe Operationen |
 | `createView {name, template}` | neue Ansicht anlegen (nur nach Freigabe, siehe Sicherheit) |
 | `backups {view}`, `restore {view, backup}` | Sicherungen auflisten und wiederherstellen |
+| `diff {view, backup, page?}` | Sicherung mit dem aktuellen Stand vergleichen (ab 1.6) |
+| `restorePage {view, backup, page, dryRun?}` | nur eine Seite aus einer Sicherung zurückholen (ab 1.6) |
 | `resetCache` | Zwischenspeicher von IPSViewConnect leeren |
 | `icons` | interne Icons von IPSView (Nummer und Name) |
 
@@ -134,6 +136,13 @@ der Antwort aus „Ergebnis“ und der Symcon- und IPSView-Version.
 
 ## Versionen
 
+- **1.6 (Beta):** Layout-Hinweise nach `apply` für die geänderten Seiten (Überlappungen, Karten- und Seitenrand,
+  zu niedrige Texte, Werteknöpfe mit unpassendem Wert); neue Befehle `diff` (Sicherung mit aktuellem Stand
+  vergleichen) und `restorePage` (eine Seite aus einer Sicherung zurückholen); Vermerk `note` bei `apply`, der im
+  Namen der Sicherung steht; zusätzlich je Tag eine Sicherung aufheben (`BackupKeepDays`, Standard 14).
+  **Fehler behoben:** Beim Aufräumen wurden Sicherungen nach Objekt-ID statt nach Datum sortiert, dadurch konnten
+  neuere Sicherungen gelöscht werden. KI-Anleitung um bewährte Muster und Stolperfallen ergänzt
+  (Zustandsanzeigen, Symbol vor Text, Befehlsvariablen, Fortschrittsbalken, eigenes Datumsformat, Skripte per MCP).
 - **1.5 (Beta):** Seiten und Elemente kopieren mit Austausch von IDs und Texten (`copyPage`, `copyControls`);
   Warnung, wenn die Ansicht seit dem letzten Speichern anderweitig geändert wurde (z. B. alter Designer-Tab);
   Diagramme übernehmen fehlende `objectid` und werden gemeldet; Prüfung der Popup-Seiten von Detail-Knöpfen und
